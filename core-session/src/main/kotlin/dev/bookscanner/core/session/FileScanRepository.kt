@@ -197,10 +197,14 @@ class FileScanRepository(
                 null
             }
         val session = parsed?.toSession()
-        return when {
-            session == null -> recoverSession(id)
-            else -> session.reconcileWithDisk(id)
-        }
+        if (session != null) return session.reconcileWithDisk(id)
+
+        // Only attempt recovery for a directory that actually holds page data.
+        // Without this, any stray directory under root — including one left
+        // half-created by an interrupted createSession — would surface in the
+        // session list as an empty "Recovered session" the user never made.
+        if (pageFileNames(id).isEmpty()) return null
+        return recoverSession(id)
     }
 
     /**

@@ -1,7 +1,7 @@
 # ADR-0006: Module structure — pure-JVM contracts core, engine modules at the boundary
 
 ## Status
-Accepted (2026-08-08)
+Accepted (2026-08-08); amended 2026-08-11 — see "Amendment" below.
 
 ## Context
 AGENTS.md §6–7 mandates stable interfaces between pipeline stages and
@@ -59,6 +59,27 @@ Pure-JVM cores give sub-second test cycles and CI without emulators.
 - Some M1 interfaces (e.g. `PageTransformer`) have a single implementation
   for now — accepted, because substitution there is an explicit product
   requirement (§7), not speculative abstraction.
+
+## Amendment (2026-08-11) — a fifth module, `pdf-writer`
+
+[ADR-0007](0007-pdf-export-jpeg-passthrough.md) replaced the platform PDF
+exporter with an in-house writer. That writer is pure Kotlin with no Android
+dependency, so placing it in `engine-production` (an Android library) would
+have made its tests need Robolectric for code that touches no Android API —
+and would have hidden a component the From-Scratch track (Milestone 6) and the
+benchmark harness both need to run off-device.
+
+It therefore gets its own pure-JVM module, consistent with this ADR's own
+argument that Android-freedom should be enforced by the toolchain:
+
+```text
+pdf-writer/         pure JVM: minimal image-only PDF writer (DCTDecode
+                    passthrough), JPEG header parsing. No Android.
+```
+
+`engine-production` depends on it and supplies the Android-side pixel work.
+This does not weaken the "no empty placeholder modules" rule: the module has
+real, tested content today (22 tests, verified against Apache PDFBox).
 
 ## Revisit When
 M2 introduces CV (possible NDK module boundary questions) or module count /

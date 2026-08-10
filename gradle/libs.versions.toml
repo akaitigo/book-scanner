@@ -14,6 +14,11 @@ junit = "4.13.2"
 androidxJunit = "1.3.0"
 espresso = "3.7.0"
 androidxTestCore = "1.7.0"
+robolectric = "4.16.1"
+pdfbox = "3.0.3"
+# Pinned to the same ktlint the local format hook runs, so CI and local agree.
+ktlint = "1.8.0"
+androidxExifInterface = "1.4.1"
 
 [libraries]
 androidx-core-ktx = { module = "androidx.core:core-ktx", version.ref = "coreKtx" }
@@ -49,6 +54,14 @@ androidx-test-core = { module = "androidx.test:core", version.ref = "androidxTes
 androidx-espresso-core = { module = "androidx.test.espresso:espresso-core", version.ref = "espresso" }
 androidx-compose-ui-test-junit4 = { module = "androidx.compose.ui:ui-test-junit4" }
 androidx-compose-ui-test-manifest = { module = "androidx.compose.ui:ui-test-manifest" }
+robolectric = { module = "org.robolectric:robolectric", version.ref = "robolectric" }
+# Test-only: an independent, mature PDF implementation used to verify that the
+# hand-written writer's output actually parses and renders elsewhere.
+# Apache-2.0, never shipped in the app.
+pdfbox = { module = "org.apache.pdfbox:pdfbox", version.ref = "pdfbox" }
+ktlint-cli = { module = "com.pinterest.ktlint:ktlint-cli", version.ref = "ktlint" }
+
+androidx-exifinterface = { module = "androidx.exifinterface:exifinterface", version.ref = "androidxExifInterface" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

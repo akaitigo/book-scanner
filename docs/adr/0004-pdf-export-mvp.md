@@ -1,7 +1,15 @@
 # ADR-0004: MVP PDF export — platform PdfDocument behind PdfExporter, with measured size gate
 
 ## Status
-Accepted (2026-08-08) — contains an explicit measurement gate (M1-04)
+**Superseded by [ADR-0007](0007-pdf-export-jpeg-passthrough.md)** (2026-08-11).
+
+The gate defined below was never measured for `PdfDocument`: the platform PDF
+API turned out to be unavailable in this project's test environment, and no
+emulator is available to substitute. The fallback this ADR pre-committed to —
+a custom minimal JPEG-embedding writer — was implemented, measured, and
+adopted. The analysis below is retained because ADR-0007 builds on it.
+
+Original status: Accepted (2026-08-08) — contains an explicit measurement gate (M1-04)
 
 ## Context
 Milestone 1 needs image-only PDF export: valid, ordered, readable
@@ -65,5 +73,6 @@ speculative custom code.
 - The test suite includes a minimal structural PDF parser (test-only).
 
 ## Revisit When
-The M1-04 gate result lands (either way, record it here); or M3 text-layer
-work begins.
+Resolved: see [ADR-0007](0007-pdf-export-jpeg-passthrough.md) for the measured
+outcome and the replacement decision. M3 text-layer work remains an open
+revisit trigger there.

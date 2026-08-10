@@ -10,5 +10,10 @@ local.properties
 captures/
 .kotlin/
 
+# JVM crash/heap artifacts
+*.hprof
+hs_err_pid*.log
+replay_pid*.log
+
 # OS
 .DS_Store
