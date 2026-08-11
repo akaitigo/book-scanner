@@ -20,16 +20,16 @@ jobs:
     timeout-minutes: 30
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Set up JDK 17
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '17'
 
       - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v4
+        uses: gradle/actions/setup-gradle@v6
 
       - name: Check formatting
         run: ./gradlew ktlintCheck --no-daemon
@@ -45,7 +45,7 @@ jobs:
 
       - name: Upload test reports
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: test-reports
           path: '**/build/reports/tests/**'
@@ -59,3 +59,14 @@ jobs:
           grep -rho 'MEASURE[^<&]*' --include='*.xml' . >> "$GITHUB_STEP_SUMMARY" || \
             echo 'no measurements recorded' >> "$GITHUB_STEP_SUMMARY"
           echo '```' >> "$GITHUB_STEP_SUMMARY"
+
+      # The debug APK is signed with the standard debug key, so it installs by
+      # sideloading without any signing secret in this repository. It is the
+      # build to put on a device for the checks CI cannot make: camera capture,
+      # predictive back, text scaling, and how a real exported PDF looks.
+      - name: Upload debug APK
+        uses: actions/upload-artifact@v7
+        with:
+          name: book-scanner-debug-apk
+          path: app/build/outputs/apk/debug/*.apk
+          retention-days: 14
