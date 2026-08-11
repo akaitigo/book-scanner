@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <!--
+      No INTERNET permission, deliberately and permanently for the local
+      pipeline (AGENTS.md §11). Scanned book pages never leave the device,
+      and this is asserted by a test rather than left as an intention.
+    -->
+    <uses-permission android:name="android.permission.CAMERA" />
+
+    <!--
+      CameraX pulls in androidx.media3 (for video capture, which this app does
+      not use), and media3 declares ACCESS_NETWORK_STATE. Removed explicitly so
+      the shipped manifest matches the privacy claim; PrivacyManifestTest
+      asserts this against the *merged* manifest so a future dependency cannot
+      reintroduce it unnoticed.
+    -->
+    <uses-permission
+        android:name="android.permission.ACCESS_NETWORK_STATE"
+        tools:node="remove" />
+
+    <uses-feature
+        android:name="android.hardware.camera.any"
+        android:required="false" />
+
+    <application
+        android:name=".BookScannerApplication"
+        android:allowBackup="false"
+        android:enableOnBackInvokedCallback="true"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.BookScanner">
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:label="@string/app_name"
+            android:theme="@style/Theme.BookScanner">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+
+</manifest>

@@ -217,7 +217,9 @@ class JpegPdfExporterTest {
 
             val sourceTotal = files.sumOf { it.length() }
             val ratio = out.size().toDouble() / sourceTotal
-            println("MEASURE exporter-size-ratio pages=${files.size} source=${sourceTotal}B pdf=${out.size()}B ratio=$ratio")
+            println(
+                "MEASURE exporter-size-ratio pages=${files.size} source=${sourceTotal}B pdf=${out.size()}B ratio=$ratio",
+            )
             assertTrue(ratio <= 1.05, "PDF/source ratio was $ratio, budget 1.05")
         }
 

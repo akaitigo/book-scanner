@@ -15,6 +15,7 @@ dependencyResolutionManagement {
 }
 
 rootProject.name = "book-scanner"
+include(":app")
 include(":core-contracts")
 include(":core-session")
 include(":pdf-writer")

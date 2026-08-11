@@ -1,0 +1,29 @@
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+indent_size = 4
+
+[*.{kt,kts}]
+max_line_length = 120
+
+# @Composable functions are PascalCase by Compose convention, which is the
+# opposite of Kotlin's function-naming rule. Exempting the annotation is the
+# documented way to keep both; disabling the rule outright would also stop it
+# catching genuinely misnamed non-composable functions.
+ktlint_function_naming_ignore_when_annotated_with = Composable
+
+# Test names are backtick-quoted sentences on purpose — they are the failure
+# message a future reader sees first.
+[**/src/test/**.kt]
+ktlint_function_naming_ignore_when_annotated_with = Composable, Test
+
+[*.{yml,yaml,json,toml}]
+indent_size = 2
+
+[*.md]
+trim_trailing_whitespace = false

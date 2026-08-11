@@ -121,6 +121,40 @@ implementation), not with our own reader: page count, page order (rendered
 pixel colour per page), `/Rotate`, media box, `/DeviceGray` vs `/DeviceRGB`,
 and a 120-page document.
 
+## Book-scale pipeline (Milestone 1 acceptance)
+
+Method: 120 synthetic pages through the real pipeline — normalize, ingest,
+restart the repository, reorder, edit one page's geometry, export. No fakes.
+
+| Date | Measurement | Result | Budget |
+|---|---|---|---:|
+| 2026-08-11 | Pages surviving capture + repository restart | 120 / 120, order preserved | 120 |
+| 2026-08-11 | PDF overhead per page | **470 B** | ≤ 1024 B |
+| 2026-08-11 | Output ÷ source on this dataset | 1.175 | — (see note) |
+
+Note on the ratio: these synthetic pages are ~2.7 KB each (mostly flat white),
+so a fixed ~470 B/page cost is 17% of them. Real scans are hundreds of KB per
+page, where the same constant is well under 1%. The test asserts the constant,
+because that is the invariant that actually holds; asserting a ratio would
+only measure how compressible the test's own images happen to be.
+
+Test: `app` → `BookScaleSmokeTest`.
+
+## Privacy (asserted, not intended)
+
+| Date | Claim | How it is asserted |
+|---|---|---|
+| 2026-08-11 | The app cannot reach the network | The **merged** manifest declares no `INTERNET` and no `ACCESS_NETWORK_STATE`. |
+| 2026-08-11 | Imports need no storage permission | No `READ_MEDIA_*` / `READ_EXTERNAL_STORAGE` in the merged manifest; the Photo Picker is used instead. |
+
+The merged manifest is the right target: this found `ACCESS_NETWORK_STATE`
+arriving transitively via `androidx.media3` (a CameraX dependency for video
+capture, which this app does not use). It is now removed explicitly with
+`tools:node="remove"`, and the test prevents a future dependency from
+reintroducing it unnoticed.
+
+Test: `app` → `PrivacyManifestTest`.
+
 ## Session storage
 
 | Date | Measurement | Result | Budget |
@@ -134,7 +168,9 @@ quickly`.
 
 Stated explicitly so absence is not mistaken for a result:
 
-- per-page export latency, p50/p95, peak memory on a real device;
-- pages scanned per minute (needs the capture UI);
+- per-page export latency, p50/p95, and peak memory on a real device — the
+  120-page smoke test proves correctness at scale, not timing;
+- pages scanned per minute with a real camera and a real book;
+- capture quality (focus, exposure) on real hardware;
 - anything involving page detection, OCR, or a From-Scratch/Production
   comparison — those engines do not exist yet.

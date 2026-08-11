@@ -123,7 +123,10 @@ class FileScanRepository(
             }
         }
 
-    override suspend fun commitPage(staged: StagedPage): ScannedPage {
+    override suspend fun commitPage(
+        staged: StagedPage,
+        geometry: PageGeometry,
+    ): ScannedPage {
         val file = staged.file
         // A staged file that is missing or empty means the writer failed or
         // was killed mid-write; committing it would put an unreadable page
@@ -136,6 +139,7 @@ class FileScanRepository(
                 id = staged.pageId,
                 fileName = file.name,
                 createdAtEpochMs = clock(),
+                geometry = geometry,
             )
         update(staged.sessionId) { session ->
             session.copy(pages = session.pages + page)

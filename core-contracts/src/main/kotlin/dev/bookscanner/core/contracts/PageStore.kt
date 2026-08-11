@@ -25,8 +25,15 @@ interface PageStore {
     /**
      * Commit a staged page (whose [StagedPage.file] must now contain a
      * complete JPEG) to the end of the session's page list.
+     *
+     * [geometry] carries any orientation the source declared, which
+     * normalization moves out of the pixels and into page state — see
+     * [PageImageNormalizer].
      */
-    suspend fun commitPage(staged: StagedPage): ScannedPage
+    suspend fun commitPage(
+        staged: StagedPage,
+        geometry: PageGeometry = PageGeometry.IDENTITY,
+    ): ScannedPage
 
     /** Delete a staged page that will not be committed. */
     suspend fun discardPage(staged: StagedPage)

@@ -125,7 +125,10 @@ class FileScanRepositoryTest {
             assertTrue(File(root, "${session.id.value}/pages/${a.value}.jpg").isFile)
             assertTrue(File(root, "${session.id.value}/pages/${c.value}.jpg").isFile)
 
-            assertContentEquals(listOf(a, c), requireNotNull(newRepository().getSession(session.id)).pages.map { it.id })
+            assertContentEquals(
+                listOf(a, c),
+                requireNotNull(newRepository().getSession(session.id)).pages.map { it.id },
+            )
         }
 
     @Test
