@@ -1,5 +1,17 @@
 # Deliverable D — Initial Implementation Plan (Milestone 1)
 
+> **Status: complete (2026-08-11).** Two items shipped differently from the
+> plan below, and the descriptions have been corrected rather than left to
+> mislead:
+> - **M1-04** planned `PdfDocumentExporter` on the platform PDF API. That API
+>   turned out to be unavailable in this project's test environment and was
+>   superseded before it could be measured — see
+>   [ADR-0007](adr/0007-pdf-export-jpeg-passthrough.md). The exporter is
+>   `JpegPdfExporter` over an in-house `:pdf-writer` module.
+> - **Instrumented/emulator tests** are not used anywhere. The build hosts have
+>   no `/dev/kvm`, so every acceptance gate was designed to be measurable as a
+>   JVM test instead.
+
 Small executable issues, in dependency order. Each issue is one reviewable
 change. "AC" = acceptance criteria.
 
@@ -15,8 +27,9 @@ dataset policy) ship with M1-11.
   `gradle/libs.versions.toml`, `gradle/wrapper/*`, module skeletons
   (`app/`, `core-contracts/`, `core-session/`, `engine-production/`),
   `.github/workflows/ci.yml`.
-- **AC**: `./gradlew build` succeeds locally; CI runs assemble + JVM unit
-  tests on push/PR (free tier, no emulator); LICENSE = Apache-2.0.
+- **AC**: `./gradlew build` succeeds locally; CI runs ktlint + assemble + JVM
+  unit tests on push/PR (free tier, no emulator); LICENSE = Apache-2.0. Java 17
+  toolchain declared so local and CI compile identically.
 - **Tests**: placeholder unit test per JVM module proves the test toolchain.
 
 ### M1-02 — Domain model + engine contracts (`core-contracts`)
@@ -44,19 +57,21 @@ dataset policy) ship with M1-11.
   other pages, corrupt/truncated manifest recovery, 500-page manifest perf
   sanity (<100 ms parse).
 
-### M1-04 — Production PDF exporter + size gate (`engine-production`)
+### M1-04 — Production PDF exporter + size gate (`pdf-writer`, `engine-production`)
 - **Objective**: streaming image-PDF export; measured file-size verdict.
-- **Files**: `engine-production/src/main/kotlin/...` — `PdfDocumentExporter`
-  implementing `PdfExporter`; test-only minimal PDF reader.
+- **Shipped as**: `pdf-writer/` (`PdfImageDocumentWriter`, JPEG header parsing)
+  + `engine-production` (`JpegPdfExporter`), with baseline JPEG embedded
+  verbatim as `/DCTDecode`. Verified against Apache PDFBox, test-only.
 - **AC**: valid PDF (header `%PDF-`, correct page count, opens in common
   readers); ≤1 full-res bitmap in memory at a time; progress callback per
   page; **size gate measured**: output ≤1.5× sum of source JPEGs on the
   reference set — result recorded in `docs/benchmark.md` results section.
-  If the gate fails → open issue to implement the fallback minimal
-  JPEG-passthrough writer (ADR-0004) before M1-09 merges.
-- **Tests**: instrumented — export 3 known JPEGs, parse structure, assert
-  page count/order and size ratio; cancellation mid-export leaves no
-  partial file at the destination.
+  **Result**: 1.0008 (writer) / 1.0016 (end-to-end) — the fallback was adopted
+  because the platform exporter proved unmeasurable, not because it lost.
+- **Tests**: JVM. `:pdf-writer` asserts structure, order, `/Rotate`, colour
+  space and size through PDFBox; `:engine-production` asserts passthrough vs
+  re-encode routing and that cancellation leaves no complete document; the
+  ViewModel asserts the partially written file is deleted on cancel or failure.
 
 ### M1-05 — Page transformer: non-destructive crop/rotate (`engine-production`)
 - **Objective**: apply `PageGeometry` to pixels for preview/export.
@@ -64,8 +79,8 @@ dataset policy) ship with M1-11.
   preview vs full-res for export.
 - **AC**: originals never modified; EXIF orientation honored; downsampled
   decode for previews (no full-res bitmap for thumbnails).
-- **Tests**: instrumented — synthetic bitmap with colored quadrants: rotate
-  90° and crop each quadrant, assert pixels; EXIF-rotated JPEG handled.
+- **Tests**: JVM under Robolectric with native graphics — quadrant bitmaps for
+  rotate/crop, EXIF orientation folded into geometry rather than pixels.
 
 ### M1-06 — App shell + session list (`app`)
 - **Objective**: navigable app; create/open/delete sessions.
@@ -111,18 +126,25 @@ dataset policy) ship with M1-11.
 - **AC**: export shows per-page progress; result readable in an external
   reader; export of 0-page session blocked with message; failure surfaces
   error without corrupting session; cancel cleans up partial output.
-- **Tests**: VM progress/error tests with fake exporter (JVM); instrumented
-  happy path.
+- **Tests**: VM progress/error tests with a fake exporter and a fake
+  `ExportTarget` (JVM). The target records deletion, because SAF creates the
+  document the moment a name is chosen: a cancelled export that skipped cleanup
+  would leave a truncated PDF in the user's Downloads.
 
 ### M1-11 — Book-scale smoke + docs closeout
 - **Objective**: prove book-scale usability; close Milestone 0/1 docs.
-- **Files**: instrumented smoke test (generate 120 pages → session →
-  reorder → export), `CONTRIBUTING.md`, benchmark dataset policy note,
-  README status update.
-- **AC**: 120-page export completes without OOM on a 2 GB-heap-class
-  emulator; peak memory recorded in `docs/benchmark.md` results; docs list
-  in AGENTS.md §13 satisfied for M1 scope.
-- **Tests**: the smoke test itself; CI emulator job wired (on-demand).
+- **Files**: `BookScaleSmokeTest` (120 pages through the real pipeline),
+  `CONTRIBUTING.md` (incl. the benchmark dataset policy and the dependency /
+  licence review process), README status update, `docs/privacy.md`,
+  `docs/pdf.md`, roadmap checkboxes.
+- **AC**: 120 pages survive capture → repository restart → reorder → edit →
+  export, with the PDF overhead within budget and results recorded in
+  `docs/benchmark.md`. AGENTS.md §13's doc list satisfied for M1 scope —
+  `ocr.md` and `image-processing-pipeline.md` stay unwritten until M2–M3
+  give them content, per `assessment.md`.
+- **Tests**: `BookScaleSmokeTest` and `PrivacyManifestTest`. Device-only
+  checks (per-page latency, peak memory, predictive back, 200% text) are
+  listed as unmeasured in `docs/benchmark.md` rather than claimed.
 
 ---
 

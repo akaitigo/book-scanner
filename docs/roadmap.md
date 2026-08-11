@@ -1,25 +1,30 @@
 # Roadmap
 
+> Status as of 2026-08-11: Milestones 0 and 1 are complete. Every checked box
+> below is backed by a test or a document in `docs/`; see
+> [benchmark.md](benchmark.md) for the measured acceptance gates and for what
+> deliberately remains unmeasured.
+
 ## Milestone 0 — Repository Foundation
-- [ ] Decide repository license
-- [ ] Create contribution guidelines
-- [ ] Establish project/module boundaries
-- [ ] Establish dependency/license review process
-- [ ] Define benchmark dataset policy
-- [ ] Add CI for build + tests
-- [ ] Create initial ADR template
+- [x] Decide repository license
+- [x] Create contribution guidelines
+- [x] Establish project/module boundaries
+- [x] Establish dependency/license review process
+- [x] Define benchmark dataset policy
+- [x] Add CI for build + tests (JVM only — no emulator is available, ADR-0007)
+- [x] Create initial ADR template
 
 ## Milestone 1 — Usable Scanner MVP
-- [ ] Android capture/import
-- [ ] Scan session
-- [ ] Page thumbnails
-- [ ] Reorder/delete
-- [ ] Manual crop
-- [ ] Rotate
-- [ ] PDF export
-- [ ] Local persistence
-- [ ] Recover interrupted session
-- [ ] Smoke test with a 100+ page scan
+- [x] Android capture/import
+- [x] Scan session
+- [x] Page thumbnails
+- [x] Reorder/delete
+- [x] Manual crop
+- [x] Rotate
+- [x] PDF export
+- [x] Local persistence
+- [x] Recover interrupted session
+- [x] Smoke test with a 100+ page scan (120 pages, `BookScaleSmokeTest`)
 
 ## Milestone 2 — Production Image Pipeline
 - [ ] Evaluate page-detection technologies

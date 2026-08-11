@@ -172,5 +172,10 @@ Stated explicitly so absence is not mistaken for a result:
   120-page smoke test proves correctness at scale, not timing;
 - pages scanned per minute with a real camera and a real book;
 - capture quality (focus, exposure) on real hardware;
+- **peak memory when exporting a cropped high-resolution page.**
+  `JpegPdfExporter.maxReencodedDimension` defaults to null (keep full size), so
+  a cropped 12 MP capture is decoded at full resolution during export. Only the
+  cropped pages take this path — passthrough pages are never decoded — but the
+  smoke test uses 480×640 images and does not exercise it. Needs a device;
 - anything involving page detection, OCR, or a From-Scratch/Production
   comparison — those engines do not exist yet.

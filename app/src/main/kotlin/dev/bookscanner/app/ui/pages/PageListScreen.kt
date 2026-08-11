@@ -1,5 +1,8 @@
 package dev.bookscanner.app.ui.pages
 
+import android.content.Context
+import android.net.Uri
+import android.provider.DocumentsContract
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -19,7 +22,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -77,6 +80,7 @@ import dev.bookscanner.app.ui.components.EmptyState
 import dev.bookscanner.app.ui.components.ErrorState
 import dev.bookscanner.app.ui.components.LoadingState
 import dev.bookscanner.core.contracts.PageId
+import java.io.OutputStream
 
 object PageListTags {
     const val GRID = "page-grid"
@@ -110,13 +114,7 @@ fun PageListScreen(
 
     val exportLauncher =
         rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument(PDF_MIME)) { uri ->
-            if (uri != null) {
-                viewModel.export {
-                    requireNotNull(context.contentResolver.openOutputStream(uri)) {
-                        "Could not open the chosen file for writing"
-                    }
-                }
-            }
+            if (uri != null) viewModel.export(SafExportTarget(context, uri))
         }
 
     // System back leaves a mode rather than the screen, matching the visible
@@ -282,7 +280,7 @@ fun PageListScreen(
                                     },
                                 ).testTag(PageListTags.GRID),
                     ) {
-                        itemsIndexed(state) { index, item ->
+                        itemsIndexed(state.pages, key = { _, item -> item.id.value }) { index, item ->
                             val dragging = reorderState.draggingKey == item.id.value
                             PageCell(
                                 item = item,
@@ -359,13 +357,24 @@ fun PageListScreen(
     }
 }
 
-/** `items` with the index, so each cell can label and move itself. */
-private fun androidx.compose.foundation.lazy.grid.LazyGridScope.itemsIndexed(
-    state: PageListViewModel.UiState,
-    content: @Composable (index: Int, item: PageListViewModel.PageItem) -> Unit,
-) {
-    items(state.pages, key = { it.id.value }) { item ->
-        content(state.pages.indexOfFirst { it.id == item.id }, item)
+/**
+ * Writes to the document the user picked, and deletes it if the export does
+ * not finish. SAF creates the file when the name is chosen, so without the
+ * delete a cancelled export leaves an unopenable PDF in the user's Downloads.
+ */
+private class SafExportTarget(
+    private val context: Context,
+    private val uri: Uri,
+) : PageListViewModel.ExportTarget {
+    override fun openOutput(): OutputStream =
+        requireNotNull(context.contentResolver.openOutputStream(uri, "wt")) {
+            "Could not open the chosen file for writing"
+        }
+
+    override fun discard() {
+        // Best effort: the provider may not support deletion, and the file may
+        // already be gone. Neither is worth surfacing over the real failure.
+        runCatching { DocumentsContract.deleteDocument(context.contentResolver, uri) }
     }
 }
 

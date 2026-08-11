@@ -54,6 +54,27 @@ class PageListViewModelTest {
         }
     }
 
+    /**
+     * Stands in for the SAF document: it exists as soon as the user picks a
+     * name, and must be removed if the export does not complete.
+     */
+    private class RecordingTarget : PageListViewModel.ExportTarget {
+        val stream = ByteArrayOutputStream()
+        var opened = 0
+            private set
+        var discarded = 0
+            private set
+
+        override fun openOutput(): OutputStream {
+            opened++
+            return stream
+        }
+
+        override fun discard() {
+            discarded++
+        }
+    }
+
     private fun viewModel(
         session: ScanSession,
         exporter: PdfExporter = FakeExporter(),
@@ -298,7 +319,7 @@ class PageListViewModelTest {
             val viewModel = viewModel(session, exporter)
             advanceUntilIdle()
 
-            viewModel.export { ByteArrayOutputStream() }
+            viewModel.export(RecordingTarget())
             advanceUntilIdle()
 
             assertEquals(3, exporter.exported.size)
@@ -318,7 +339,7 @@ class PageListViewModelTest {
             val viewModel = viewModel(session)
             advanceUntilIdle()
 
-            viewModel.export { ByteArrayOutputStream() }
+            viewModel.export(RecordingTarget())
             advanceUntilIdle()
 
             val message = assertNotNull(viewModel.state.value.errorMessage)
@@ -333,7 +354,7 @@ class PageListViewModelTest {
             val viewModel = viewModel(session, FakeExporter(gate = gate))
             advanceUntilIdle()
 
-            viewModel.export { ByteArrayOutputStream() }
+            viewModel.export(RecordingTarget())
             advanceUntilIdle()
             assertNotNull(viewModel.state.value.exportProgress, "the dialog should be up while exporting")
 
@@ -343,14 +364,33 @@ class PageListViewModelTest {
         }
 
     @Test
-    fun `a failed export reports the failure and leaves the session intact`() =
+    fun `a successful export keeps the document`() =
         runTest {
             val session = repository.seed(pageCount = 2)
+            val target = RecordingTarget()
+            val viewModel = viewModel(session)
+            advanceUntilIdle()
+
+            viewModel.export(target)
+            advanceUntilIdle()
+
+            assertEquals(0, target.discarded, "a finished export must not delete its own output")
+        }
+
+    @Test
+    fun `a failed export deletes the partial document`() =
+        runTest {
+            val session = repository.seed(pageCount = 2)
+            val target = RecordingTarget()
             val viewModel = viewModel(session, FakeExporter(failWith = TestFailure("disk full")))
             advanceUntilIdle()
 
-            viewModel.export { ByteArrayOutputStream() }
+            viewModel.export(target)
             advanceUntilIdle()
+
+            // SAF created the file when the user chose a name, so a failure
+            // that left it behind would put an unopenable PDF in Downloads.
+            assertEquals(1, target.discarded)
 
             val message = assertNotNull(viewModel.state.value.errorMessage)
             assertTrue(message.contains("disk full"), "got: $message")
@@ -365,10 +405,11 @@ class PageListViewModelTest {
             val session = repository.seed(pageCount = 5)
             val gate = CompletableDeferred<Unit>()
             val exporter = FakeExporter(gate = gate)
+            val target = RecordingTarget()
             val viewModel = viewModel(session, exporter)
             advanceUntilIdle()
 
-            viewModel.export { ByteArrayOutputStream() }
+            viewModel.export(target)
             advanceUntilIdle()
 
             viewModel.cancelExport()
@@ -377,6 +418,7 @@ class PageListViewModelTest {
             assertNull(viewModel.state.value.exportProgress)
             assertTrue(!viewModel.state.value.exportedSuccessfully)
             assertEquals(0, exporter.wroteBytes, "a cancelled export should stop writing")
+            assertEquals(1, target.discarded, "a cancelled export must not leave a truncated PDF behind")
         }
 
     @Test
@@ -384,22 +426,16 @@ class PageListViewModelTest {
         runTest {
             val session = repository.seed(pageCount = 3)
             val gate = CompletableDeferred<Unit>()
-            var streamsOpened = 0
             val viewModel = viewModel(session, FakeExporter(gate = gate))
             advanceUntilIdle()
 
-            viewModel.export {
-                streamsOpened++
-                ByteArrayOutputStream()
-            }
+            val target = RecordingTarget()
+            viewModel.export(target)
             advanceUntilIdle()
-            viewModel.export {
-                streamsOpened++
-                ByteArrayOutputStream()
-            }
+            viewModel.export(target)
             advanceUntilIdle()
 
-            assertEquals(1, streamsOpened)
+            assertEquals(1, target.opened)
             gate.complete(Unit)
             advanceUntilIdle()
         }

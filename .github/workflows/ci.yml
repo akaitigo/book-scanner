@@ -56,6 +56,6 @@ jobs:
         run: |
           echo '### Measured gates' >> "$GITHUB_STEP_SUMMARY"
           echo '```' >> "$GITHUB_STEP_SUMMARY"
-          grep -ho 'MEASURE[^<&]*' */build/test-results/*/*.xml >> "$GITHUB_STEP_SUMMARY" || \
+          grep -rho 'MEASURE[^<&]*' --include='*.xml' . >> "$GITHUB_STEP_SUMMARY" || \
             echo 'no measurements recorded' >> "$GITHUB_STEP_SUMMARY"
           echo '```' >> "$GITHUB_STEP_SUMMARY"

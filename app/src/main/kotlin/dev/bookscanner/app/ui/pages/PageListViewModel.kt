@@ -190,7 +190,22 @@ class PageListViewModel(
 
     // ---- export ----
 
-    fun export(openOutput: () -> OutputStream) {
+    /**
+     * Where an export writes, and how to undo it.
+     *
+     * The Storage Access Framework creates the document the moment the user
+     * picks a name — before a single byte is written. So a cancelled or failed
+     * export leaves a truncated file the user will later try to open. The
+     * target owns removing it.
+     */
+    interface ExportTarget {
+        fun openOutput(): OutputStream
+
+        /** Deletes the partially written document. Must be safe to call twice. */
+        fun discard()
+    }
+
+    fun export(target: ExportTarget) {
         val pages = _state.value.pages
         if (pages.isEmpty()) {
             _state.update { it.copy(errorMessage = "Add at least one page before exporting") }
@@ -202,7 +217,7 @@ class PageListViewModel(
             viewModelScope.launch {
                 _state.update { it.copy(exportProgress = ExportProgress(0, pages.size), exportedSuccessfully = false) }
                 try {
-                    openOutput().use { output ->
+                    target.openOutput().use { output ->
                         exporter.export(
                             pages = pages.map { ExportPage(it.file, it.page.geometry) },
                             output = output,
@@ -212,9 +227,13 @@ class PageListViewModel(
                     }
                     _state.update { it.copy(exportProgress = null, exportedSuccessfully = true) }
                 } catch (cancellation: CancellationException) {
+                    // Cancellation runs in a cancelled scope, so the cleanup
+                    // must not itself suspend or launch.
+                    runCatching { target.discard() }
                     _state.update { it.copy(exportProgress = null) }
                     throw cancellation
                 } catch (error: Throwable) {
+                    runCatching { target.discard() }
                     _state.update {
                         it.copy(exportProgress = null, errorMessage = "Export failed: ${error.readableMessage()}")
                     }

@@ -63,24 +63,6 @@ internal object PageImageDecoder {
         return cropped.downscaledTo(maxDimension)
     }
 
-    /** Longest edge of the result of [decode], without decoding pixels. */
-    fun outputSize(
-        file: File,
-        geometry: PageGeometry,
-    ): Pair<Int, Int> {
-        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-        BitmapFactory.decodeFile(file.absolutePath, bounds)
-        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) {
-            throw IOException("Not a decodable image: $file")
-        }
-        val quarterTurns = geometry.rotationDegrees / 90
-        val swapped = quarterTurns % 2 != 0
-        val width = if (swapped) bounds.outHeight else bounds.outWidth
-        val height = if (swapped) bounds.outWidth else bounds.outHeight
-        val crop = geometry.crop ?: return width to height
-        return max(1, (width * crop.width).roundToInt()) to max(1, (height * crop.height).roundToInt())
-    }
-
     /**
      * Largest power-of-two sample size that keeps the decoded image at or
      * above [targetLongestEdge]; decoding below the target and scaling up

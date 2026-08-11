@@ -1,79 +1,88 @@
-# Book Scanner OSS — Project Brief
+# Book Scanner
 
-An open-source Android book-scanning application for digitizing personally owned paper books into readable, optionally searchable PDFs.
+An open-source Android app for scanning your own paper books into readable —
+and later searchable — PDFs. Everything runs on the device; the app has no
+network permission at all.
 
-## Why
+**Status: Milestone 1 (usable scanner) complete.** Capture or import pages,
+manage a scanning session, crop and rotate, reorder and delete, export one PDF,
+and resume after an interruption. Automatic page detection and OCR are
+Milestones 2–3 and are not built yet — see [docs/roadmap.md](docs/roadmap.md).
 
-Typical document scanners are optimized for loose sheets. This project is specifically interested in book scanning:
+## What makes it different
 
-- repeated multi-page capture
-- book/page boundary detection
-- perspective correction
-- page curvature
-- page splitting
-- shadows near the gutter
-- OCR
-- diagrams and figures
-- searchable PDF generation
+Two things, both about engineering rather than features.
 
-The application is intended primarily for private use by the person scanning their own books.
+**Exported pages are the captured bytes.** A camera JPEG is stored verbatim and
+embedded verbatim in the PDF (`/DCTDecode` passthrough) — no decode, no
+re-encode, no generational loss. Measured overhead: **470 bytes per page**;
+exported PDFs come out at ~1.00× the size of their source images. See
+[docs/pdf.md](docs/pdf.md) and
+[ADR-0007](docs/adr/0007-pdf-export-jpeg-passthrough.md).
 
-## Distinguishing Feature
+**Two interchangeable engine families.** Production implementations use the best
+practical library or platform API; From-Scratch implementations reimplement the
+same algorithms behind the same contracts, so both can be benchmarked on
+identical inputs. Milestone 1 ships Production engines; the contracts they
+implement (`core-contracts`) are Android-free so a From-Scratch engine can be
+benchmarked off-device.
 
-The repository contains two implementation strategies:
+Nothing here is chosen because it is conventional. Every material decision is
+argued in an ADR against alternatives — including the one where the platform's
+own PDF API was measured out of the design.
 
-### Production
+## Build and run
 
-Use the best practical libraries/platform capabilities after evaluating quality, maintenance, ecosystem, popularity, performance, licensing, and Android integration.
+Requirements: JDK 17 (the build declares a Java 17 toolchain), Android SDK with
+API 37. No Android Studio needed.
 
-### From Scratch
+```bash
+git clone <this repo> && cd book-scanner
+echo "sdk.dir=$ANDROID_HOME" > local.properties
 
-Reimplement important algorithms in-house for learning and benchmarking.
-
-Both should expose compatible interfaces so the same input can be processed and compared.
-
-## Design Philosophy
-
-Technology-neutral by default.
-
-The project must not choose a technology solely because it is conventional for Android or document scanning.
-
-General conventions are valid candidates, but important selections should be justified against measurable requirements.
-
-## Initial MVP
-
-The first genuinely useful release should support:
-
-- capture or import page images
-- maintain a book/page session
-- crop/rotate pages
-- reorder/delete pages
-- export one PDF
-- reopen/continue a session
-- local/offline operation
-
-Automatic page processing and OCR are subsequent layers.
-
-## Long-Term Direction
-
-```text
-Physical Book
-    ↓
-Capture
-    ↓
-Page Detection
-    ↓
-Geometry / Enhancement
-    ↓
-OCR + Document Analysis
-    ↓
-Document Model
-    ↓
-Searchable PDF
-    ↓
-Personal Digital Library
+./gradlew build          # compile + all tests
+./gradlew ktlintCheck    # formatting
+./gradlew :app:installDebug
 ```
 
-Possible later outputs include EPUB, Markdown, figure extraction, table extraction, and AI-friendly structured documents.
+If your JDK 17 lives somewhere Gradle cannot find (mise, asdf, sdkman), point
+it there from `~/.gradle/gradle.properties`:
 
-See `AGENTS.md` before implementation.
+```properties
+org.gradle.java.installations.paths=/path/to/jdk-17
+```
+
+There is no emulator job: the acceptance gates are all measurable as JVM tests,
+which is deliberate — see [CONTRIBUTING.md](CONTRIBUTING.md#tests).
+
+## Modules
+
+```text
+core-contracts/     pure JVM — domain model + engine contracts. No Android.
+core-session/       pure JVM — file-backed sessions, atomic manifests, ingest.
+pdf-writer/         pure JVM — minimal image-only PDF writer, JPEG headers.
+engine-production/  Android — normalizer, transformer, PDF exporter.
+app/                Android — Compose UI, CameraX, composition root.
+```
+
+Rationale: [ADR-0006](docs/adr/0006-module-structure.md).
+
+## Documentation
+
+| Document | What it answers |
+|---|---|
+| [AGENTS.md](AGENTS.md) | The project's rules for contributors and agents |
+| [docs/requirements.md](docs/requirements.md) | What the product must do |
+| [docs/mvp-proposal.md](docs/mvp-proposal.md) | The Milestone 1 architecture |
+| [docs/technology-candidates.md](docs/technology-candidates.md) | Scored comparison of every dependency considered |
+| [docs/benchmark.md](docs/benchmark.md) | Method, **measured results**, and what is *not* measured |
+| [docs/pdf.md](docs/pdf.md) | The PDF writer's format scope and limits |
+| [docs/privacy.md](docs/privacy.md) | How the offline claim is enforced, not just stated |
+| [docs/ux-review.md](docs/ux-review.md) | The UX rule review of the M1 screens, violations and fixes |
+| [docs/adr/](docs/adr/) | Decisions, alternatives, evidence, and revisit triggers |
+| [docs/implementation-plan.md](docs/implementation-plan.md) | Milestone 1 broken into issues |
+
+## Licence
+
+Apache-2.0 ([ADR-0001](docs/adr/0001-repository-license.md)). Scan only books
+you own, for your own use.

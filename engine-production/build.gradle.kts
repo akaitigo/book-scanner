@@ -16,6 +16,10 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
+    kotlin {
+        jvmToolchain(17)
+    }
+
     testOptions {
         unitTests.all {
             // Robolectric loads a full Android runtime per test class; the

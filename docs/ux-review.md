@@ -61,7 +61,12 @@ Stated explicitly rather than claimed:
 
 ## Result
 
-critical: 0 · high: 0 · remaining medium: 0 (all listed above were fixed).
+**0 violations found · 3 checks unverified (a device is required).**
+
+Stated that way on purpose: COLOR-001 is a critical rule and A11Y-004 a high
+one, and neither was measured. The process this review follows records
+unmeasured checks as *unverified*, never as passes — so "critical: 0" alone
+would be a quotable overstatement.
 
 Self-review caveat: a passing self-review means the obvious violations were
 found and fixed. The three "not verified" items above need a device before this
