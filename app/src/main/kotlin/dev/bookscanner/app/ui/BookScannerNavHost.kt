@@ -66,7 +66,12 @@ fun BookScannerNavHost(
                 viewModel(
                     factory =
                         viewModelFactory {
-                            CaptureViewModel(sessionId, container.repository, container.ingestor)
+                            CaptureViewModel(
+                                sessionId = sessionId,
+                                repository = container.repository,
+                                ingestor = container.ingestor,
+                                detector = container.detector,
+                            )
                         },
                 )
             CaptureScreen(

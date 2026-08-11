@@ -3,10 +3,14 @@ package dev.bookscanner.app.ui.capture
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dev.bookscanner.app.ui.sessions.readableMessage
+import dev.bookscanner.core.contracts.GrayscaleImage
+import dev.bookscanner.core.contracts.PageBoundary
+import dev.bookscanner.core.contracts.PageDetector
 import dev.bookscanner.core.contracts.ScanRepository
 import dev.bookscanner.core.contracts.ScannedPage
 import dev.bookscanner.core.contracts.SessionId
 import dev.bookscanner.core.session.PageIngestor
+import dev.bookscanner.vision.AutoCaptureController
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -24,6 +28,9 @@ class CaptureViewModel(
     private val sessionId: SessionId,
     private val repository: ScanRepository,
     private val ingestor: PageIngestor,
+    /** Optional: without it, auto-capture still works on stillness alone. */
+    private val detector: PageDetector? = null,
+    private val autoCapture: AutoCaptureController = AutoCaptureController(),
 ) : ViewModel() {
     data class UiState(
         val pageCount: Int = 0,
@@ -31,6 +38,12 @@ class CaptureViewModel(
         val recentPages: List<PageThumbnail> = emptyList(),
         val capturing: Boolean = false,
         val importing: Boolean = false,
+        val autoCapture: Boolean = false,
+        val autoStatus: AutoCaptureController.Status = AutoCaptureController.Status.SEARCHING,
+        /** 0..1 through the hold, for a progress ring around the shutter. */
+        val holdProgress: Float = 0f,
+        /** Most recent detection, drawn over the preview. Advisory only. */
+        val previewBoundary: PageBoundary? = null,
         val errorMessage: String? = null,
     ) {
         val busy: Boolean get() = capturing || importing
@@ -43,6 +56,9 @@ class CaptureViewModel(
 
     private val _state = MutableStateFlow(UiState())
     val state: StateFlow<UiState> = _state.asStateFlow()
+
+    private var framesSeen = 0L
+    private var latestBoundary: PageBoundary? = null
 
     init {
         refresh()
@@ -112,6 +128,55 @@ class CaptureViewModel(
         }
     }
 
+    /**
+     * Turns automatic capture on or off.
+     *
+     * Off by default: it fires the shutter on its own, and a feature that acts
+     * without being asked should be asked for first.
+     */
+    fun setAutoCapture(enabled: Boolean) {
+        autoCapture.reset()
+        _state.update {
+            it.copy(
+                autoCapture = enabled,
+                autoStatus = AutoCaptureController.Status.SEARCHING,
+                holdProgress = 0f,
+                previewBoundary = null,
+            )
+        }
+    }
+
+    /**
+     * Feeds a preview frame to the auto-capture logic.
+     *
+     * @return true when the caller should take a photograph now.
+     *
+     * Detection runs on only every [DETECT_EVERY_N_FRAMES]th frame: the shutter
+     * decision does not depend on it (see [AutoCaptureController]), so paying
+     * for it on every frame would buy nothing but heat.
+     */
+    fun onPreviewFrame(
+        frame: GrayscaleImage,
+        nowMillis: Long,
+    ): Boolean {
+        if (!_state.value.autoCapture || _state.value.busy) return false
+
+        framesSeen++
+        if (framesSeen % DETECT_EVERY_N_FRAMES == 0L) {
+            latestBoundary = runCatching { detector?.detect(frame)?.boundary }.getOrNull()
+        }
+
+        val decision = autoCapture.onFrame(frame, nowMillis, latestBoundary)
+        _state.update {
+            it.copy(
+                autoStatus = decision.status,
+                holdProgress = decision.holdProgress,
+                previewBoundary = decision.boundary,
+            )
+        }
+        return decision.shouldCapture
+    }
+
     fun consumeError() {
         _state.update { it.copy(errorMessage = null) }
     }
@@ -158,5 +223,8 @@ class CaptureViewModel(
 
     private companion object {
         const val RECENT_PAGE_COUNT = 12
+
+        /** Detection is advisory, so it does not need every frame. */
+        const val DETECT_EVERY_N_FRAMES = 4L
     }
 }

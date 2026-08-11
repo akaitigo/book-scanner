@@ -206,6 +206,90 @@ class CaptureViewModelTest {
             )
         }
 
+    // ---- automatic capture ----
+
+    private fun frame(
+        level: Int,
+        jitter: Int = 1,
+        seed: Long = 1,
+    ): dev.bookscanner.core.contracts.GrayscaleImage {
+        var state = seed or 1L
+        val pixels =
+            ByteArray(40 * 30) {
+                state = state * 6364136223846793005L + 1442695040888963407L
+                val noise = if (jitter == 0) 0 else ((state ushr 33).toInt() % (jitter * 2 + 1)) - jitter
+                (level + noise).coerceIn(0, 255).toByte()
+            }
+        return dev.bookscanner.core.contracts
+            .GrayscaleImage(40, 30, pixels)
+    }
+
+    @Test
+    fun `frames are ignored until auto capture is switched on`() =
+        runTest {
+            val viewModel = viewModel(RecordingNormalizer())
+            advanceUntilIdle()
+
+            var now = 0L
+            repeat(20) {
+                // A feature that fires the shutter unprompted must be asked for.
+                assertTrue(!viewModel.onPreviewFrame(frame(200), now))
+                now += 100
+            }
+        }
+
+    @Test
+    fun `holding a still frame asks for a capture`() =
+        runTest {
+            val viewModel = viewModel(RecordingNormalizer())
+            advanceUntilIdle()
+            viewModel.setAutoCapture(true)
+
+            var now = 0L
+            var asked = false
+            repeat(20) {
+                if (viewModel.onPreviewFrame(frame(200), now)) asked = true
+                now += 100
+            }
+
+            assertTrue(asked, "a page held still should trigger a capture")
+        }
+
+    @Test
+    fun `no capture is requested while a page is already being saved`() =
+        runTest {
+            val viewModel = viewModel(RecordingNormalizer())
+            advanceUntilIdle()
+            viewModel.setAutoCapture(true)
+
+            // Occupy the pipeline, then feed perfectly still frames.
+            viewModel.onFrameCaptured("page".toByteArray())
+            var now = 0L
+            repeat(20) {
+                assertTrue(
+                    !viewModel.onPreviewFrame(frame(200), now),
+                    "auto capture must not stack on top of an in-flight ingest",
+                )
+                now += 100
+            }
+        }
+
+    @Test
+    fun `turning auto capture off clears its feedback`() =
+        runTest {
+            val viewModel = viewModel(RecordingNormalizer())
+            advanceUntilIdle()
+            viewModel.setAutoCapture(true)
+            viewModel.onPreviewFrame(frame(200), 0)
+            viewModel.onPreviewFrame(frame(200), 300)
+
+            viewModel.setAutoCapture(false)
+
+            assertTrue(!viewModel.state.value.autoCapture)
+            assertEquals(0f, viewModel.state.value.holdProgress)
+            assertNull(viewModel.state.value.previewBoundary)
+        }
+
     @Test
     fun `the recent strip shows the newest pages first`() =
         runTest {

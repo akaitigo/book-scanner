@@ -382,6 +382,25 @@ luminance separation is not available there. Better ranking is worth little
 when nothing auto-applies, and worse geometry is worth a lot; with n = 5 and no
 labels, tuning further would be fitting to five photographs.
 
+### Automatic capture (2026-08-12)
+
+The shutter fires on **stillness**, not on detection. That is a direct
+consequence of the measurement above: detection finds a usable boundary in
+about two frames out of five, so gating capture on it would mean a dark cover
+or an awkwardly framed page could never be captured at all. A page held steady
+is unambiguous and costs a subsampled frame difference to recognise.
+
+Verified on the Pixel 7: with the toggle on, two pages were captured with no
+button press at all — 5.2 MB and 5.3 MB, ingested through the normal path with
+their EXIF orientation folded into geometry exactly as manual captures are.
+The "turn the page" state then prevented it re-shooting the same scene.
+
+`AutoCaptureController` is pure JVM with 10 tests, because "turn the page,
+settle, hold" is a *sequence* and a camera makes a sequence hard to reproduce
+twice. Detection is fed in as an advisory signal — it draws the outline and
+shortens the required hold from 700 ms to 450 ms, but its absence never blocks
+a capture.
+
 ## What would move this forward
 
 A labelled set: photographs with hand-marked corners, covering the categories

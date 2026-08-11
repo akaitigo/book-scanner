@@ -1,11 +1,15 @@
 package dev.bookscanner.app.ui.capture
 
 import android.content.Context
+import android.util.Size
 import androidx.camera.core.CameraSelector
+import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.ImageCapture
 import androidx.camera.core.ImageCaptureException
 import androidx.camera.core.ImageProxy
 import androidx.camera.core.Preview
+import androidx.camera.core.resolutionselector.ResolutionSelector
+import androidx.camera.core.resolutionselector.ResolutionStrategy
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.compose.runtime.Composable
@@ -17,6 +21,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import dev.bookscanner.core.contracts.GrayscaleImage
 import kotlinx.coroutines.suspendCancellableCoroutine
 import java.util.concurrent.Executor
 import kotlin.coroutines.resume
@@ -30,6 +35,27 @@ import kotlin.coroutines.resume
  * twice for no benefit.
  */
 class CameraCaptureController {
+    /**
+     * Preview-resolution frames for auto-capture.
+     *
+     * KEEP_ONLY_LATEST because a backlog is worse than useless here: deciding
+     * "is the page still now?" from a frame that is 400 ms old would fire the
+     * shutter after the user has already moved on.
+     */
+    val imageAnalysis: ImageAnalysis =
+        ImageAnalysis
+            .Builder()
+            .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
+            .setResolutionSelector(
+                ResolutionSelector
+                    .Builder()
+                    .setResolutionStrategy(
+                        // Small on purpose: stillness and page edges are both
+                        // large-scale, and this runs on every frame.
+                        ResolutionStrategy(Size(640, 480), ResolutionStrategy.FALLBACK_RULE_CLOSEST_HIGHER_THEN_LOWER),
+                    ).build(),
+            ).build()
+
     val imageCapture: ImageCapture =
         ImageCapture
             .Builder()
@@ -100,6 +126,7 @@ fun CameraPreview(
                 CameraSelector.DEFAULT_BACK_CAMERA,
                 preview,
                 controller.imageCapture,
+                controller.imageAnalysis,
             )
         }.onFailure(onCameraError)
     }
@@ -123,3 +150,41 @@ private suspend fun Context.awaitCameraProvider(): ProcessCameraProvider =
             ContextCompat.getMainExecutor(this),
         )
     }
+
+/**
+ * The luma plane of a YUV frame, as a [GrayscaleImage].
+ *
+ * `YUV_420_888` plane 0 *is* the luminance the detector wants, so this is a
+ * copy rather than a colour conversion — the row stride is usually wider than
+ * the image, which is the only thing to be careful about.
+ */
+internal fun ImageProxy.lumaToGrayscale(): GrayscaleImage {
+    val plane = planes[0]
+    val buffer = plane.buffer
+    val rowStride = plane.rowStride
+    val pixelStride = plane.pixelStride
+
+    val out = ByteArray(width * height)
+    if (pixelStride == 1 && rowStride == width) {
+        buffer.get(out, 0, out.size)
+        return GrayscaleImage(width, height, out)
+    }
+
+    val row = ByteArray(rowStride)
+    var offset = 0
+    for (y in 0 until height) {
+        val remaining = buffer.remaining()
+        if (remaining <= 0) break
+        val toRead = minOf(rowStride, remaining)
+        buffer.get(row, 0, toRead)
+        var x = 0
+        var index = 0
+        while (x < width && index < toRead) {
+            out[offset + x] = row[index]
+            x++
+            index += pixelStride
+        }
+        offset += width
+    }
+    return GrayscaleImage(width, height, out)
+}

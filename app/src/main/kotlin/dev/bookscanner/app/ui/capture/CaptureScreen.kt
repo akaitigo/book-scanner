@@ -2,9 +2,13 @@ package dev.bookscanner.app.ui.capture
 
 import android.Manifest
 import android.content.pm.PackageManager
+import android.os.Handler
+import android.os.Looper
+import android.os.SystemClock
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -24,6 +28,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Lens
+import androidx.compose.material.icons.filled.MotionPhotosAuto
+import androidx.compose.material.icons.filled.MotionPhotosOff
 import androidx.compose.material.icons.filled.NoPhotography
 import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material3.Button
@@ -32,6 +38,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.IconToggleButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
@@ -41,15 +48,21 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.LiveRegionMode
@@ -61,7 +74,10 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.bookscanner.app.ui.components.PageImage
+import dev.bookscanner.core.contracts.GrayscaleImage
+import dev.bookscanner.vision.AutoCaptureController
 import kotlinx.coroutines.launch
+import java.util.concurrent.Executors
 
 object CaptureTags {
     const val SHUTTER = "capture-shutter"
@@ -69,6 +85,7 @@ object CaptureTags {
     const val DONE = "capture-done"
     const val PERMISSION_RATIONALE = "capture-permission-rationale"
     const val PERMISSION_DENIED = "capture-permission-denied"
+    const val AUTO_TOGGLE = "capture-auto-toggle"
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -143,6 +160,22 @@ fun CaptureScreen(
                     }
                 },
                 actions = {
+                    IconToggleButton(
+                        checked = state.autoCapture,
+                        onCheckedChange = viewModel::setAutoCapture,
+                        enabled = cameraGranted,
+                        modifier = Modifier.testTag(CaptureTags.AUTO_TOGGLE),
+                    ) {
+                        Icon(
+                            if (state.autoCapture) Icons.Default.MotionPhotosAuto else Icons.Default.MotionPhotosOff,
+                            contentDescription =
+                                if (state.autoCapture) {
+                                    "Turn off automatic capture"
+                                } else {
+                                    "Capture automatically when the page is held still"
+                                },
+                        )
+                    }
                     IconButton(
                         onClick = { pickerLauncher.launch(PickVisualMediaRequest()) },
                         modifier = Modifier.testTag(CaptureTags.IMPORT),
@@ -172,6 +205,20 @@ fun CaptureScreen(
                             modifier = Modifier.fillMaxSize(),
                             onCameraError = { error -> viewModel.onCaptureFailed(error) },
                         )
+                        if (state.autoCapture) {
+                            AutoCaptureAnalyzer(
+                                controller = controller,
+                                onFrame = { frame, now -> viewModel.onPreviewFrame(frame, now) },
+                                onCapture = {
+                                    scope.launch {
+                                        runCatching { controller.capture(ContextCompat.getMainExecutor(context)) }
+                                            .onSuccess(viewModel::onFrameCaptured)
+                                            .onFailure(viewModel::onCaptureFailed)
+                                    }
+                                },
+                            )
+                            AutoCaptureOverlay(state = state, modifier = Modifier.fillMaxSize())
+                        }
                     }
 
                     permissionDenied -> {
@@ -240,6 +287,16 @@ fun CaptureScreen(
                         )
                     }
                 } else {
+                    if (state.autoCapture) {
+                        // A ring that fills while the frame is held still, so
+                        // the shutter firing on its own is predictable rather
+                        // than startling.
+                        CircularProgressIndicator(
+                            progress = { state.holdProgress },
+                            modifier = Modifier.size(SHUTTER_SIZE + 12.dp),
+                            strokeWidth = 4.dp,
+                        )
+                    }
                     FilledIconButton(
                         onClick = {
                             scope.launch {
@@ -298,6 +355,83 @@ private fun CameraUnavailable(
         }
     }
 }
+
+/**
+ * Runs the auto-capture analyzer for as long as it is composed.
+ *
+ * Bound and cleared with the composition rather than with the camera, so
+ * turning auto-capture off actually stops the analysis instead of leaving it
+ * running and ignored.
+ */
+@Composable
+private fun AutoCaptureAnalyzer(
+    controller: CameraCaptureController,
+    onFrame: (GrayscaleImage, Long) -> Boolean,
+    onCapture: () -> Unit,
+) {
+    val executor = remember { Executors.newSingleThreadExecutor() }
+    val currentOnFrame by rememberUpdatedState(onFrame)
+    val currentOnCapture by rememberUpdatedState(onCapture)
+    val mainHandler = remember { Handler(Looper.getMainLooper()) }
+
+    DisposableEffect(controller) {
+        controller.imageAnalysis.setAnalyzer(executor) { image ->
+            try {
+                val shouldCapture = currentOnFrame(image.lumaToGrayscale(), SystemClock.elapsedRealtime())
+                if (shouldCapture) mainHandler.post { currentOnCapture() }
+            } finally {
+                // Always close: a leaked ImageProxy stalls the pipeline after
+                // a handful of frames.
+                image.close()
+            }
+        }
+        onDispose {
+            controller.imageAnalysis.clearAnalyzer()
+            executor.shutdown()
+        }
+    }
+}
+
+/** Draws the detected page outline over the preview, when there is one. */
+@Composable
+private fun AutoCaptureOverlay(
+    state: CaptureViewModel.UiState,
+    modifier: Modifier = Modifier,
+) {
+    val boundary = state.previewBoundary
+    Box(modifier) {
+        if (boundary != null) {
+            Canvas(Modifier.fillMaxSize()) {
+                val points = boundary.corners.map { Offset(it.x * size.width, it.y * size.height) }
+                val path =
+                    Path().apply {
+                        moveTo(points[0].x, points[0].y)
+                        points.drop(1).forEach { lineTo(it.x, it.y) }
+                        close()
+                    }
+                drawPath(path, color = Color.White.copy(alpha = 0.9f), style = Stroke(width = 6f))
+            }
+        }
+        Text(
+            text = autoStatusLabel(state.autoStatus),
+            style = MaterialTheme.typography.bodyMedium,
+            color = Color.White,
+            modifier =
+                Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(16.dp)
+                    .background(Color.Black.copy(alpha = 0.55f), RoundedCornerShape(8.dp))
+                    .padding(horizontal = 12.dp, vertical = 6.dp),
+        )
+    }
+}
+
+private fun autoStatusLabel(status: AutoCaptureController.Status): String =
+    when (status) {
+        AutoCaptureController.Status.SEARCHING -> "Hold the page still"
+        AutoCaptureController.Status.HOLDING -> "Keep still…"
+        AutoCaptureController.Status.WAITING_FOR_NEW_PAGE -> "Turn the page"
+    }
 
 private fun pageCountLabel(count: Int): String =
     when (count) {
