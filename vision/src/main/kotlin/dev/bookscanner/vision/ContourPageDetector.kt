@@ -32,8 +32,6 @@ class ContourPageDetector(
      */
     private val workingLongestEdge: Int = DEFAULT_WORKING_EDGE,
     private val blurRadius: Int = DEFAULT_BLUR_RADIUS,
-    /** Below this score the boundary is reported but flagged low-confidence. */
-    private val minScore: Float = DEFAULT_MIN_SCORE,
 ) : PageDetector {
     override val engine: EngineId = EngineId.FROM_SCRATCH
 
@@ -64,13 +62,9 @@ class ContourPageDetector(
         )
     }
 
-    /** True when [detection] is trustworthy enough to apply without asking. */
-    fun isConfident(detection: PageDetection): Boolean = detection.found && detection.confidence >= minScore
-
     private companion object {
         const val DEFAULT_WORKING_EDGE = 600
         const val DEFAULT_BLUR_RADIUS = 2
-        const val DEFAULT_MIN_SCORE = 0.55f
 
         /** Fewer edge pixels than this is an empty or hopelessly flat frame. */
         const val MIN_EDGE_POINTS = 200

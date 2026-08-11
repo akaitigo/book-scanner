@@ -15,6 +15,12 @@ kotlin {
     }
 }
 
+tasks.withType<Test>().configureEach {
+    // Lets the real-photograph harness be pointed at a local directory; it
+    // skips when unset, so CI is unaffected.
+    System.getProperty("bookscanner.realPages")?.let { systemProperty("bookscanner.realPages", it) }
+}
+
 dependencies {
     api(project(":core-contracts"))
 

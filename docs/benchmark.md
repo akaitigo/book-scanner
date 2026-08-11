@@ -322,12 +322,77 @@ check refusing a drag that would fold the page into a bow-tie — a failure the
 area check could not catch, because a bow-tie's shoelace area partly cancels
 and stays above any sensible minimum.
 
+### Real photographs — first exposure (2026-08-12)
+
+Five photographs of an actual book, taken on the Pixel 7 in room light: a
+contents page, a spread, a cover, all hand-held at an angle. The images are not
+in this repository (they are of a copyrighted book — `CONTRIBUTING.md`'s dataset
+policy). Reproduce with:
+
+```
+./gradlew :vision:test --tests '*RealPageHarness*' -Dbookscanner.realPages=/path/to/dir
+```
+
+There is no ground truth for a photograph without hand-labelling, so the
+verdicts below are from drawing each detected quadrilateral back onto its image
+and looking.
+
+| # | Subject | Result |
+|---|---|---|
+| 1 | Contents page, angled | Close, but the bottom edge cuts through the last line of text |
+| 2 | Same, different angle | As above |
+| 3 | Contents page, page top out of frame | **Not found** (was a confident wrong answer before the fix below) |
+| 4 | Dark orange cover, dense line illustration, hand across the edge | **Not found** |
+| 5 | Spread, page filling the frame | **Correct** |
+
+Latency: 75–250 ms per 4080×3072 image on a desktop JVM.
+
+**The synthetic numbers were measuring a solved problem.** 0.002 corner error on
+generated pages did not predict this at all, and that gap is the most useful
+thing this exercise produced.
+
+Three findings:
+
+1. **Confidence does not separate right from wrong on real photographs.** The
+   badly wrong detection on #3 scored 0.751; the correct one on #5 scored
+   0.832. On synthetic pages confidence tracked difficulty faithfully. Any
+   design that auto-applies a boundary above a threshold was therefore unsound,
+   and `ContourPageDetector.isConfident` has been removed rather than left
+   sitting there inviting use. Detection stays a visible proposal.
+2. **Text lines compete with page edges.** The score rewarded right angles,
+   parallel sides, area and edge strength — and two long text lines plus the
+   page's left and right sides satisfy all four. #3 was "detected" at 0.27 of
+   the frame, enclosing the bottom third of the page.
+3. **"The page is brighter than its background" is not a safe assumption.** #4
+   is a dark cover on a partly-bright desk.
+
+The fix applied was the boring one: raise the minimum area a candidate must
+cover from 0.15 to 0.35 of the frame. That is justified by what a deliberately
+photographed page looks like, not by fitting these five images — a page
+occupying a third of the frame was never a page. It converts #3 from a
+confident wrong answer into an honest "not found", and changes nothing else.
+
+A **richer** fix was tried and reverted, which is worth recording. Scoring each
+candidate by how page-like its interior is (uniformity, and luminance
+separation from just outside the edge) did improve the *ranking* — the wrong
+answer fell to 0.653 while the correct one stayed at 0.777 — but it degraded
+#5's geometry, pulling its bottom edge up. The reason is structural: at a
+book's gutter the region just outside the boundary is *also* paper, so
+luminance separation is not available there. Better ranking is worth little
+when nothing auto-applies, and worse geometry is worth a lot; with n = 5 and no
+labels, tuning further would be fitting to five photographs.
+
+## What would move this forward
+
+A labelled set: photographs with hand-marked corners, covering the categories
+listed above. Until then, detection accuracy on real pages is characterised
+(2 of 5 usable, 2 honestly declined, 1 clipping text) but not measured.
+
 ## Not measured for detection
 
-- **Real photographs.** Every number above is synthetic. Glossy paper, curved
-  pages near the binding, gutter shadows, fingers and genuinely busy desks are
-  in `docs/benchmark.md`'s dataset categories and none of them is covered yet.
-  Synthetic pages establish that the pipeline is correct, not that it is good.
+- **Accuracy on real photographs**, as a number. The five above were judged by
+  eye, not measured against labelled corners. Glossy paper, curved pages near
+  the binding, gutter shadows and low light remain untried.
 - Any comparison against OpenCV, which would need a device (ADR-0008).
 - On-device latency; the figure above is a desktop JVM.
 

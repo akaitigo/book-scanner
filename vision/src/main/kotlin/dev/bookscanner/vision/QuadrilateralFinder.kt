@@ -19,6 +19,18 @@ import kotlin.math.min
  */
 object QuadrilateralFinder {
     /**
+     * A page someone deliberately photographed fills the frame; a quadrilateral
+     * covering a third of it is a text block or a piece of furniture.
+     *
+     * Raised from 0.15 after real photographs: a book's contents page was
+     * "detected" at 0.27 of the frame, the detector having locked onto two long
+     * text lines instead of the page's top and bottom edges. The threshold is
+     * justified by what a page photograph looks like, not by fitting these
+     * particular five images — a page at 0.3 of the frame was never a page.
+     */
+    private const val DEFAULT_MIN_AREA = 0.35f
+
+    /**
      * @param minAreaFraction reject quadrilaterals smaller than this share of
      *   the frame. A page the user photographed fills most of it; a small quad
      *   is nearly always a text block or a piece of furniture.
@@ -27,7 +39,7 @@ object QuadrilateralFinder {
         lines: List<Line>,
         width: Int,
         height: Int,
-        minAreaFraction: Float = 0.15f,
+        minAreaFraction: Float = DEFAULT_MIN_AREA,
         maxAreaFraction: Float = 0.999f,
     ): ScoredQuadrilateral? {
         if (lines.size < 4) return null
