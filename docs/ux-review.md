@@ -63,10 +63,9 @@ reach these — see [benchmark.md](benchmark.md#still-not-measured-on-device):
 - **Contrast ratios (COLOR-001/002)** — the UI uses Material 3 semantic colour
   roles throughout, which are designed to meet the ratios, but no measurement
   was taken.
-- **Layout at 200% text scale (A11Y-004, TYPE-004)** — typography is all `sp`
-  via `MaterialTheme.typography`, but the page-number chip inside a fixed
-  aspect-ratio cell is the most likely place to overflow, and it was not
-  measured.
+- ~~**Layout at 200% text scale (A11Y-004, TYPE-004)**~~ — **verified**
+  2026-08-11 on a Pixel 7: the session list and page grid both hold up, and the
+  page-number chip (the predicted failure point) stays inside its cell.
 - **Predictive back animation and real inset behaviour (AND-001/002)** — the
   code paths are correct by construction; the visible result needs a device.
   No emulator is available in this environment (`/dev/kvm` is absent, see
@@ -74,8 +73,14 @@ reach these — see [benchmark.md](benchmark.md#still-not-measured-on-device):
 
 ## Result
 
-**0 violations found · 3 checks still unverified (contrast, 200% text,
+**0 violations found · 2 checks still unverified (contrast ratios, the
 predictive-back animation).**
+
+A device session on 2026-08-11 confirmed 200 % text scale, the accessible names
+in the real accessibility tree, and the discard-on-back dialog — and found five
+defects in the crop editor that this review had missed entirely, because it
+reviewed rules rather than running the screen. See
+[benchmark.md](benchmark.md).
 
 Updated 2026-08-11: a device session confirmed PERM-001, NAV-001 and the
 keyboard-inset behaviour, but did not reach the three above.

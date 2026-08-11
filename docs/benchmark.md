@@ -244,6 +244,23 @@ and it persisted to the manifest.
 The lesson recorded rather than glossed: the ViewModel tests were thorough and
 all passed, and the layer they did not cover is exactly where every defect was.
 
+## Second device session (2026-08-11, later)
+
+| Check | Result |
+|---|---|
+| Discard-on-back (NAV-010 / AND-004) | **Pass.** With unsaved crop/rotation, system back shows "Discard changes?" / "Keep editing" / "Discard". With no changes it closes directly, which is correct. |
+| Crop handle grab and drag | **Pass** after the fixes: a 275 × 360 px corner drag produced `crop = {left 0.276, top 0.272}` and persisted. |
+| Reorder by arrow buttons (the non-gesture path, A11Y-002) | **Pass.** Moving page 1 later reordered the manifest. First/last arrows are correctly disabled. |
+| Reorder by long-press drag | **Not verifiable this way.** Logging showed `onDragStart` firing and then `onDragCancel` with no drag events: injecting `input motionevent` from separate processes splits the pointer stream, so the first MOVE cancels the gesture. This is a limitation of adb injection, **not evidence the feature is broken** — and not evidence it works either. Needs a finger. |
+| Layout at 200 % font scale (A11Y-004, TYPE-004) | **Pass** on the session list and the page grid. The page-number chip — the predicted failure point — grew but stayed inside its cell. Restored to 1.0 afterwards. |
+| Accessible names in the real a11y tree (A11Y-001) | **Pass.** `uiautomator` shows `Page 1 of 5` … `Page 5 of 5`, `Back to scans`, `Add pages`, `More options`. |
+| App state after ~4 h backgrounded | **Pass.** Returned to the page grid with all 5 pages. |
+
+One fix came out of this session even though the test was inconclusive: the
+grid's own scrolling competed with the drag gesture, so `userScrollEnabled` is
+now off while reordering. Edge auto-scroll is driven programmatically, and the
+arrow buttons work regardless.
+
 ## Still not measured on device
 
 These were **not** exercised in the 2026-08-11 session and remain open; the
@@ -253,9 +270,10 @@ procedure for each is in [device-test-plan.md](device-test-plan.md):
 - precise per-page export latency, and peak memory *during* export
 - cancelling an export mid-flight, and whether the partial document is really
   removed by a live SAF provider
-- drag reorder, and the discard-on-back dialog (crop-handle grabbing is now
-  verified — see the defect table above)
-- predictive back animation, 200% text scale, TalkBack order, gesture insets
+- long-press drag reorder — needs a human finger (see above for why adb cannot
+  test it); the arrow-button path is verified
+- the predictive-back *animation* (the dialog it triggers is verified), TalkBack
+  focus order with the screen reader actually running, and gesture insets
 - a cropped 12 MP page through the re-encode path (`maxReencodedDimension`
   defaults to unlimited)
 

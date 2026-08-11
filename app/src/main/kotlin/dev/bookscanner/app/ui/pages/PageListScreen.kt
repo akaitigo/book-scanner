@@ -260,6 +260,13 @@ fun PageListScreen(
                     LazyVerticalGrid(
                         state = gridState,
                         columns = GridCells.Adaptive(minSize = 120.dp),
+                        // While reordering, the grid must not handle drags
+                        // itself. Its scrollable sits inside this composable and
+                        // therefore sees pointer events first: it claimed every
+                        // move, so the long-press drag started (the cell lifted)
+                        // and then never received a single drag event. Edge
+                        // auto-scroll is driven programmatically instead.
+                        userScrollEnabled = !state.reordering,
                         // Bottom room for the FAB so the last row is reachable.
                         contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 12.dp, bottom = 96.dp),
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
