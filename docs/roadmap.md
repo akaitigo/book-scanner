@@ -27,8 +27,8 @@
 - [x] Smoke test with a 100+ page scan (120 pages, `BookScaleSmokeTest`)
 
 ## Milestone 2 — Production Image Pipeline
-- [ ] Evaluate page-detection technologies
-- [ ] Implement automatic page detection
+- [x] Evaluate page-detection technologies
+- [x] Implement automatic page detection (in-house, `:vision`; measured in CI)
 - [ ] Perspective correction
 - [ ] image enhancement
 - [ ] quality presets
@@ -50,12 +50,16 @@
 - [ ] finger/occlusion experiment
 
 ## Milestone 5 — From-Scratch Image Core
-- [ ] image buffer abstraction
-- [ ] grayscale
-- [ ] convolution
-- [ ] blur
-- [ ] Sobel
-- [ ] Canny-class detector
+
+> Partly delivered early: ADR-0008 made the in-house image core the Production
+> detector, because a CV dependency could not be executed in this project's CI.
+> The same inversion ADR-0007 recorded for the PDF writer.
+- [x] image buffer abstraction
+- [x] grayscale
+- [x] convolution
+- [x] blur
+- [x] Sobel
+- [x] Canny-class detector
 - [ ] morphology
 - [ ] connected components
 - [ ] line/contour detection

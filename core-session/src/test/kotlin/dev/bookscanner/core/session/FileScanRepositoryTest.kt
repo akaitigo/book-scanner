@@ -346,12 +346,26 @@ class FileScanRepositoryTest {
                 )
 
             val encoded = manifestJson.encodeToString(session.toManifest())
-            val start = System.nanoTime()
-            val decoded = manifestJson.decodeFromString<SessionManifest>(encoded).toSession()
-            val elapsedMs = (System.nanoTime() - start) / 1_000_000
 
-            assertEquals(500, decoded.pageCount)
-            assertContentEquals(pages.map { it.id }, decoded.pages.map { it.id })
-            assertTrue(elapsedMs < 100, "500-page manifest parse took ${elapsedMs}ms")
+            // Best of several runs, after a warm-up. A single cold measurement
+            // here was measuring JIT compilation and CPU contention from the
+            // rest of a parallel build, not the parse: it drifted past 200 ms
+            // while the code was untouched. The guard is against a manifest
+            // format that scales badly, so the achievable cost is the honest
+            // figure.
+            repeat(3) { manifestJson.decodeFromString<SessionManifest>(encoded) }
+            var bestMs = Long.MAX_VALUE
+            var decoded: ScanSession? = null
+            repeat(5) {
+                val start = System.nanoTime()
+                decoded = manifestJson.decodeFromString<SessionManifest>(encoded).toSession()
+                bestMs = minOf(bestMs, (System.nanoTime() - start) / 1_000_000)
+            }
+
+            val result = requireNotNull(decoded)
+            println("MEASURE manifest-parse pages=500 bestMs=$bestMs")
+            assertEquals(500, result.pageCount)
+            assertContentEquals(pages.map { it.id }, result.pages.map { it.id })
+            assertTrue(bestMs < 100, "500-page manifest parse took ${bestMs}ms at best")
         }
 }

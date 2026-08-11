@@ -261,6 +261,59 @@ grid's own scrolling competed with the drag gesture, so `userScrollEnabled` is
 now off while reordering. Edge auto-scroll is driven programmatically, and the
 arrow buttons work regardless.
 
+## Page detection (Milestone 2, in-house detector)
+
+Measured in CI on synthetic pages with **known** corners — the reason
+[ADR-0008](adr/0008-page-detection.md) chose a hand-written pipeline over a CV
+dependency this project cannot execute. Error is the mean distance between
+detected and true corners, in fractions of the frame.
+
+| Case | Corner error | Confidence |
+|---|---:|---:|
+| Flat page, plain background | **0.002** | 0.88 |
+| Strong perspective | **0.002** | 0.74 |
+| Sensor noise (σ ≈ 12 levels) | **0.003** | 0.88 |
+| Low contrast (page 200 vs desk 165) | **0.002** | 0.88 |
+| Straight-edged clutter behind the page | **0.003** | 0.87 |
+| Featureless frame | not found, confidence 0 — correct | — |
+
+0.002 of the frame is roughly 8 px on a 4080 px capture. Confidence tracks
+difficulty: the perspective case scores lowest, which is what the corner-angle
+term in the score is for.
+
+Latency: **~100 ms** for a 2040×1536 input on a desktop JVM, after the pipeline
+downscales to a 600 px working edge. (The figure varies with build parallelism;
+the assertion budget is 4 s, far above it.)
+
+Two findings worth keeping, both from measurement rather than reasoning:
+
+1. Detection failed on the *cleanest* images while succeeding on noisy ones.
+   Otsu's threshold was computed over the whole suppressed gradient field, where
+   >99 % of pixels are exactly zero; the zero bin dominated so completely that
+   the split collapsed to zero and every pixel became an "edge". Excluding zeros
+   fixed it — and the guard that turned this into a failure rather than a
+   degradation (`if (threshold <= 0) return NOT_FOUND`) was guarding the wrong
+   quantity.
+2. A single threshold could not keep both the horizontal and the slanted edges
+   of a perspective-distorted page: a slanted edge rasterizes as a staircase
+   whose corners spike *above* a straight edge's response, so Otsu kept the
+   sides and discarded the top and bottom, leaving nothing to build a
+   quadrilateral from. Canny-style hysteresis (low = 0.4 × high, grown along
+   connected pixels) recovered it: 454 → 2538 edge points, 2 → 4 lines.
+
+Tests: `vision` → `ContourPageDetectorTest`, `ImageOpsTest`,
+`PipelineDiagnosticTest` (the last prints per-stage counts, because "detection
+failed" is not a diagnosis in a six-stage pipeline).
+
+## Not measured for detection
+
+- **Real photographs.** Every number above is synthetic. Glossy paper, curved
+  pages near the binding, gutter shadows, fingers and genuinely busy desks are
+  in `docs/benchmark.md`'s dataset categories and none of them is covered yet.
+  Synthetic pages establish that the pipeline is correct, not that it is good.
+- Any comparison against OpenCV, which would need a device (ADR-0008).
+- On-device latency; the figure above is a desktop JVM.
+
 ## Still not measured on device
 
 These were **not** exercised in the 2026-08-11 session and remain open; the
