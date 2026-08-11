@@ -172,6 +172,70 @@ quickly`.
 | `.github/workflows/ci.yml` | Green. First run 2026-08-11 (`31456148852`), 152 tests; runs ktlint + assemble + tests on every push and publishes a debug APK. |
 | APK-level privacy check | Passing — `aapt2 dump badging` on the built APK shows `CAMERA` and nothing else. Stronger than the merged-manifest test, since it inspects the shipped artifact. |
 
+## On-device results — Pixel 7, Android 17 (API 37)
+
+Measured 2026-08-11 by driving the installed debug APK over adb: real camera,
+real Storage Access Framework, real PDF reader. Conditions: Pixel 7 (panther),
+Android 17, 1080×2400 @ 420 dpi, debug build, 5 pages captured hand-held
+indoors.
+
+### Capture and storage
+
+| Measurement | Result |
+|---|---|
+| Capture succeeds end to end | Yes — 5 pages, CameraX bound, autofocus and capture sequences confirmed in logcat |
+| Page resolution | 4080×3072 (12.5 MP), full sensor |
+| Page file size | ~5.3 MB per page |
+| Stored format | **Baseline JPEG (SOF0)** — satisfies the `/DCTDecode` passthrough requirement |
+| EXIF segment retained in the stored file | **Yes** — proof the file did not go through `Bitmap.compress`; a re-encode would have dropped it |
+| Orientation handling | `"rotation": 90` in the manifest, pixels untouched — the storage invariant holds on real camera output |
+| Page order after 5 captures (two of them 731 ms apart) | Correct; manifest order equals capture time order, no duplicate ids |
+
+Storage implication worth planning for: at ~5.3 MB/page, a 300-page book is
+**~1.6 GB** of app-private storage before export. Not a defect, but it makes a
+quality/resolution setting a real Milestone 2 topic.
+
+### Export
+
+| Measurement | Result | CI equivalent |
+|---|---|---|
+| PDF ÷ sum of source JPEGs | **1.000096** (26,959,820 B from 26,957,229 B) | 1.0008 / 1.0016 |
+| Overhead per page | **518 B** | ~470 B |
+| Structure | `%PDF-`, `startxref`, `%%EOF`, `/Count 5`, 5 page objects, 5 `/DCTDecode` streams, `/DeviceRGB` | same |
+| Rotation | `/Rotate 90` on all 5 pages — no pixel re-encode | same |
+| **Camera JPEG bytes present verbatim inside the PDF** | **Yes** — the exact 5,318,999-byte capture is a contiguous substring of the exported PDF | same |
+| Opens in an independent reader | Yes — Google Drive PDF Viewer, rendered portrait, confirming `/Rotate` is honoured | PDFBox, in CI |
+| SAF default filename | `Device test.pdf`, derived from the session title | n/a |
+| PSS after exporting 27 MB of pages | 146 MB total (native heap 8 MB, Dalvik 15 MB, graphics 14 MB) | n/a |
+
+The memory figure is a **post-export** reading, not a peak-during-export
+sample; it shows the document was not accumulated in memory (buffering 27 MB
+would have been visible), but it is not a peak measurement. Instrumenting the
+peak remains open.
+
+### UX behaviour confirmed on hardware
+
+| Check | Result |
+|---|---|
+| Camera rationale appears **before** the system permission dialog | Yes, and it states pages never leave the device |
+| Permission screen offers Import as an equal alternative | Yes |
+| Dialog stays above the IME with both actions reachable (SPACE-002) | Yes — verified with the Japanese keyboard open |
+| Back affordance on the capture screen (NAV-001) | Yes |
+
+## Still not measured on device
+
+These were **not** exercised in the 2026-08-11 session and remain open; the
+procedure for each is in [device-test-plan.md](device-test-plan.md):
+
+- 100+ page capture session (only 5 pages were captured)
+- precise per-page export latency, and peak memory *during* export
+- cancelling an export mid-flight, and whether the partial document is really
+  removed by a live SAF provider
+- crop-handle grabbing with a finger, drag reorder, the discard-on-back dialog
+- predictive back animation, 200% text scale, TalkBack order, gesture insets
+- a cropped 12 MP page through the re-encode path (`maxReencodedDimension`
+  defaults to unlimited)
+
 ## Not yet measured
 
 Stated explicitly so absence is not mistaken for a result. Every item below has
@@ -182,7 +246,9 @@ because no device has been available to this session:
   120-page smoke test proves correctness at scale, not timing;
 - pages scanned per minute with a real camera and a real book;
 - capture quality (focus, exposure) on real hardware;
-- **peak memory when exporting a cropped high-resolution page.**
+- **peak memory when exporting a cropped high-resolution page.** Now concrete:
+  device captures are 4080×3072, so this path decodes a 12.5 MP bitmap
+  (~50 MB as ARGB_8888).
   `JpegPdfExporter.maxReencodedDimension` defaults to null (keep full size), so
   a cropped 12 MP capture is decoded at full resolution during export. Only the
   cropped pages take this path — passthrough pages are never decoded — but the

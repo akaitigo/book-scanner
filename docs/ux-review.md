@@ -43,9 +43,22 @@ resolved by reading the actual composable.
   Milestone 1 does not have; the confirmation names the scope instead
   (DESTR-002 satisfied; DESTR-001's preference for undo is not).
 
+## Verified on device (Pixel 7, Android 17, 2026-08-11)
+
+Three of the fixes above were exercised on real hardware and behaved as
+designed:
+
+- **PERM-001** — the rationale is shown first; the system dialog only appears
+  after "Allow camera" is pressed. Import is offered alongside it.
+- **NAV-001** — the capture screen's back arrow is present and works.
+- **SPACE-002** (keyboard) — with the Japanese IME open, the New scan dialog
+  moves above the keyboard and both actions stay reachable. This was not in the
+  original review; it was found by driving the real screen.
+
 ## Not verified
 
-Stated explicitly rather than claimed:
+Stated explicitly rather than claimed. The 2026-08-11 device session did not
+reach these — see [benchmark.md](benchmark.md#still-not-measured-on-device):
 
 - **Contrast ratios (COLOR-001/002)** — the UI uses Material 3 semantic colour
   roles throughout, which are designed to meet the ratios, but no measurement
@@ -61,7 +74,11 @@ Stated explicitly rather than claimed:
 
 ## Result
 
-**0 violations found · 3 checks unverified (a device is required).**
+**0 violations found · 3 checks still unverified (contrast, 200% text,
+predictive-back animation).**
+
+Updated 2026-08-11: a device session confirmed PERM-001, NAV-001 and the
+keyboard-inset behaviour, but did not reach the three above.
 
 Stated that way on purpose: COLOR-001 is a critical rule and A11Y-004 a high
 one, and neither was measured. The process this review follows records
