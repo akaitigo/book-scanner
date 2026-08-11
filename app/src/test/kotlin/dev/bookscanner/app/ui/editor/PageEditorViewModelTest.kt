@@ -4,8 +4,12 @@ import dev.bookscanner.app.FakeScanRepository
 import dev.bookscanner.app.MainDispatcherRule
 import dev.bookscanner.app.TestFailure
 import dev.bookscanner.core.contracts.CropRect
+import dev.bookscanner.core.contracts.NormalizedPoint
+import dev.bookscanner.core.contracts.PageBoundary
+import dev.bookscanner.core.contracts.PageDetection
 import dev.bookscanner.core.contracts.PageGeometry
 import dev.bookscanner.core.contracts.PageId
+import dev.bookscanner.core.contracts.ScanSession
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 import org.junit.Rule
@@ -24,6 +28,130 @@ class PageEditorViewModelTest {
     private fun viewModel(pageIndex: Int = 0) =
         repository.seed(pageCount = 2).let { session ->
             session to PageEditorViewModel(session.id, session.pages[pageIndex].id, repository)
+        }
+
+    // ---- automatic detection ----
+
+    private val detectedBoundary =
+        PageBoundary(
+            topLeft = NormalizedPoint(0.1f, 0.05f),
+            topRight = NormalizedPoint(0.9f, 0.08f),
+            bottomRight = NormalizedPoint(0.92f, 0.95f),
+            bottomLeft = NormalizedPoint(0.08f, 0.92f),
+        )
+
+    private fun detectingViewModel(result: PageDetection): Pair<ScanSession, PageEditorViewModel> {
+        val session = repository.seed(pageCount = 1)
+        return session to
+            PageEditorViewModel(
+                sessionId = session.id,
+                pageId = session.pages[0].id,
+                repository = repository,
+                detectPage = { _, _ -> result },
+            )
+    }
+
+    @Test
+    fun `detection proposes a boundary without writing it`() =
+        runTest {
+            val (session, viewModel) = detectingViewModel(PageDetection(detectedBoundary, confidence = 0.9f))
+            advanceUntilIdle()
+
+            viewModel.autoDetect()
+            advanceUntilIdle()
+
+            assertEquals(detectedBoundary, viewModel.state.value.geometry.boundary)
+            assertTrue(viewModel.state.value.dirty, "a proposal should be savable")
+            // Nothing is written until the user saves: a wrong detection must
+            // be discardable.
+            assertNull(
+                repository
+                    .current(session.id)
+                    .pages[0]
+                    .geometry.boundary,
+            )
+        }
+
+    @Test
+    fun `a detected boundary replaces any existing crop`() =
+        runTest {
+            val (_, viewModel) = detectingViewModel(PageDetection(detectedBoundary, confidence = 0.9f))
+            advanceUntilIdle()
+            viewModel.updateCrop(0.2f, 0.2f, 0.8f, 0.8f)
+
+            viewModel.autoDetect()
+            advanceUntilIdle()
+
+            // Keeping both would crop the corrected page using coordinates
+            // measured against the uncorrected one.
+            assertNull(viewModel.state.value.geometry.crop)
+            assertEquals(detectedBoundary, viewModel.state.value.geometry.boundary)
+        }
+
+    @Test
+    fun `a failed detection says so and leaves the geometry alone`() =
+        runTest {
+            val (_, viewModel) = detectingViewModel(PageDetection.NOT_FOUND)
+            advanceUntilIdle()
+            viewModel.rotateClockwise()
+            val before = viewModel.state.value.geometry
+
+            viewModel.autoDetect()
+            advanceUntilIdle()
+
+            assertTrue(viewModel.state.value.detectionFailed)
+            assertEquals(before, viewModel.state.value.geometry, "a failed detection must not disturb the edit")
+            assertTrue(!viewModel.state.value.detecting)
+
+            viewModel.consumeDetectionFailed()
+            assertTrue(!viewModel.state.value.detectionFailed)
+        }
+
+    @Test
+    fun `the boundary can be undone`() =
+        runTest {
+            val (_, viewModel) = detectingViewModel(PageDetection(detectedBoundary, confidence = 0.9f))
+            advanceUntilIdle()
+            viewModel.autoDetect()
+            advanceUntilIdle()
+
+            viewModel.clearBoundary()
+
+            assertNull(viewModel.state.value.geometry.boundary)
+        }
+
+    @Test
+    fun `detection is optional and the editor works without it`() =
+        runTest {
+            val (_, viewModel) = viewModel()
+            advanceUntilIdle()
+
+            assertTrue(!viewModel.state.value.detectionAvailable)
+            // Must be a no-op rather than a crash: manual editing cannot depend
+            // on detection being wired up.
+            viewModel.autoDetect()
+            advanceUntilIdle()
+            assertNull(viewModel.state.value.geometry.boundary)
+        }
+
+    @Test
+    fun `a saved boundary persists`() =
+        runTest {
+            val (session, viewModel) = detectingViewModel(PageDetection(detectedBoundary, confidence = 0.9f))
+            advanceUntilIdle()
+            viewModel.autoDetect()
+            advanceUntilIdle()
+
+            viewModel.save()
+            advanceUntilIdle()
+
+            assertEquals(
+                detectedBoundary,
+                repository
+                    .current(session.id)
+                    .pages[0]
+                    .geometry.boundary,
+            )
         }
 
     @Test

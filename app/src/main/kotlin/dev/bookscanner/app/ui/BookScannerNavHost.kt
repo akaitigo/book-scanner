@@ -113,7 +113,12 @@ fun BookScannerNavHost(
                 viewModel(
                     factory =
                         viewModelFactory {
-                            PageEditorViewModel(sessionId, pageId, container.repository)
+                            PageEditorViewModel(
+                                sessionId = sessionId,
+                                pageId = pageId,
+                                repository = container.repository,
+                                detectPage = { file, geometry -> container.pageDetection.detect(file, geometry) },
+                            )
                         },
                 )
             PageEditorScreen(

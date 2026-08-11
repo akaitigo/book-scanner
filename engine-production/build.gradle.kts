@@ -39,6 +39,7 @@ android {
 dependencies {
     api(project(":core-contracts"))
     api(project(":pdf-writer"))
+    api(project(":vision"))
     implementation(libs.kotlinx.coroutines.core)
     implementation(libs.androidx.exifinterface)
 

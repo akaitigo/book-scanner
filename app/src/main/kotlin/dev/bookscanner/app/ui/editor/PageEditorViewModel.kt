@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dev.bookscanner.app.ui.sessions.readableMessage
 import dev.bookscanner.core.contracts.CropRect
+import dev.bookscanner.core.contracts.PageDetection
 import dev.bookscanner.core.contracts.PageGeometry
 import dev.bookscanner.core.contracts.PageId
 import dev.bookscanner.core.contracts.ScanRepository
@@ -23,6 +24,11 @@ class PageEditorViewModel(
     private val sessionId: SessionId,
     private val pageId: PageId,
     private val repository: ScanRepository,
+    /**
+     * Runs page detection. Nullable so the editor works without it — detection
+     * is an assist, and the manual path must never depend on it.
+     */
+    private val detectPage: (suspend (File, PageGeometry) -> PageDetection)? = null,
 ) : ViewModel() {
     data class UiState(
         val imageFile: File? = null,
@@ -31,6 +37,10 @@ class PageEditorViewModel(
         val loading: Boolean = true,
         val saving: Boolean = false,
         val saved: Boolean = false,
+        val detecting: Boolean = false,
+        /** Set when detection ran and found nothing, so the UI can say so. */
+        val detectionFailed: Boolean = false,
+        val detectionAvailable: Boolean = false,
         val errorMessage: String? = null,
     ) {
         val dirty: Boolean get() = geometry != savedGeometry
@@ -61,12 +71,57 @@ class PageEditorViewModel(
                             savedGeometry = page.geometry,
                             geometry = page.geometry,
                             loading = false,
+                            detectionAvailable = detectPage != null,
                         )
                     }
                 }.onFailure { error ->
                     _state.update { it.copy(loading = false, errorMessage = error.readableMessage()) }
                 }
         }
+    }
+
+    /**
+     * Detects the page and applies the result as a perspective boundary.
+     *
+     * Nothing is written to storage: this is a proposal the user can Save,
+     * change, or discard, which is what keeps a wrong detection harmless.
+     */
+    fun autoDetect() {
+        val detect = detectPage ?: return
+        val file = _state.value.imageFile ?: return
+        if (_state.value.detecting) return
+
+        viewModelScope.launch {
+            _state.update { it.copy(detecting = true, detectionFailed = false) }
+            runCatching { detect(file, _state.value.geometry) }
+                .onSuccess { detection ->
+                    _state.update { current ->
+                        if (detection.boundary == null) {
+                            current.copy(detecting = false, detectionFailed = true)
+                        } else {
+                            // Replaces any crop: the boundary supersedes it, and
+                            // leaving both would crop the corrected page by
+                            // coordinates measured against the uncorrected one.
+                            current.copy(
+                                detecting = false,
+                                geometry = current.geometry.copy(boundary = detection.boundary, crop = null),
+                            )
+                        }
+                    }
+                }.onFailure { error ->
+                    _state.update {
+                        it.copy(detecting = false, errorMessage = error.readableMessage())
+                    }
+                }
+        }
+    }
+
+    fun clearBoundary() {
+        _state.update { it.copy(geometry = it.geometry.copy(boundary = null)) }
+    }
+
+    fun consumeDetectionFailed() {
+        _state.update { it.copy(detectionFailed = false) }
     }
 
     fun rotateClockwise() {

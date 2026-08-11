@@ -10,14 +10,18 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.systemGestureExclusion
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AutoFixHigh
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Crop
 import androidx.compose.material.icons.filled.RotateLeft
 import androidx.compose.material.icons.filled.RotateRight
+import androidx.compose.material.icons.filled.Undo
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.BottomAppBar
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -58,6 +62,7 @@ object PageEditorTags {
     const val SAVE = "editor-save"
     const val ROTATE_CW = "editor-rotate-cw"
     const val RESET_CROP = "editor-reset-crop"
+    const val AUTO_DETECT = "editor-auto-detect"
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -74,6 +79,14 @@ fun PageEditorScreen(
         LaunchedEffect(message) {
             snackbarHostState.showSnackbar(message)
             viewModel.consumeError()
+        }
+    }
+    if (state.detectionFailed) {
+        LaunchedEffect(Unit) {
+            // Failing to find a page is a normal outcome, not an error: say so
+            // plainly and leave the manual handles exactly where they were.
+            snackbarHostState.showSnackbar("Could not find the page edges — crop it by hand")
+            viewModel.consumeDetectionFailed()
         }
     }
     if (state.saved) {
@@ -124,8 +137,30 @@ fun PageEditorScreen(
                 ) {
                     Icon(Icons.Default.Crop, contentDescription = "Reset crop")
                 }
+                if (state.detectionAvailable) {
+                    IconButton(
+                        onClick = viewModel::autoDetect,
+                        enabled = !state.detecting,
+                        modifier = Modifier.testTag(PageEditorTags.AUTO_DETECT),
+                    ) {
+                        if (state.detecting) {
+                            CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
+                        } else {
+                            Icon(Icons.Default.AutoFixHigh, contentDescription = "Detect page edges")
+                        }
+                    }
+                }
+                if (state.geometry.boundary != null) {
+                    IconButton(onClick = viewModel::clearBoundary) {
+                        Icon(Icons.Default.Undo, contentDescription = "Undo page detection")
+                    }
+                }
                 Text(
-                    "Drag the corners to crop",
+                    if (state.geometry.boundary != null) {
+                        "Page edges detected"
+                    } else {
+                        "Drag the corners to crop"
+                    },
                     style = MaterialTheme.typography.bodySmall,
                     modifier = Modifier.padding(start = 12.dp),
                 )

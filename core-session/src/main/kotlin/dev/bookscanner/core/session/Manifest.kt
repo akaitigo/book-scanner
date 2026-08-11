@@ -1,6 +1,8 @@
 package dev.bookscanner.core.session
 
 import dev.bookscanner.core.contracts.CropRect
+import dev.bookscanner.core.contracts.NormalizedPoint
+import dev.bookscanner.core.contracts.PageBoundary
 import dev.bookscanner.core.contracts.PageGeometry
 import dev.bookscanner.core.contracts.PageId
 import dev.bookscanner.core.contracts.ScanSession
@@ -39,6 +41,14 @@ internal data class PageEntry(
     @SerialName("createdAt") val createdAtEpochMs: Long,
     val rotation: Int = 0,
     val crop: CropEntry? = null,
+    /** Perspective quadrilateral, clockwise from top-left, normalized. */
+    val boundary: List<PointEntry>? = null,
+)
+
+@Serializable
+internal data class PointEntry(
+    val x: Float,
+    val y: Float,
 )
 
 @Serializable
@@ -70,6 +80,10 @@ internal fun ScanSession.toManifest(): SessionManifest =
                     createdAtEpochMs = page.createdAtEpochMs,
                     rotation = page.geometry.rotationDegrees,
                     crop = page.geometry.crop?.let { CropEntry(it.left, it.top, it.right, it.bottom) },
+                    boundary =
+                        page.geometry.boundary
+                            ?.corners
+                            ?.map { PointEntry(it.x, it.y) },
                 )
             },
     )
@@ -107,5 +121,17 @@ private fun PageEntry.toGeometry(): PageGeometry =
         PageGeometry(
             rotationDegrees = rotation,
             crop = crop?.let { CropRect(it.left, it.top, it.right, it.bottom) },
+            boundary = boundary?.toBoundary(),
         )
     }.getOrElse { PageGeometry.IDENTITY }
+
+/**
+ * Rebuilds a boundary from its four stored corners. Anything other than four
+ * points is corrupt; the page keeps its pixels and loses only the correction,
+ * which the user can redo.
+ */
+private fun List<PointEntry>.toBoundary(): PageBoundary? {
+    if (size != 4) return null
+    val points = map { NormalizedPoint(it.x, it.y) }
+    return PageBoundary(points[0], points[1], points[2], points[3])
+}

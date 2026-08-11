@@ -2,10 +2,13 @@ package dev.bookscanner.engine.production
 
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.Canvas
 import android.graphics.Matrix
+import android.graphics.Paint
 import dev.bookscanner.core.contracts.PageGeometry
 import java.io.File
 import java.io.IOException
+import kotlin.math.hypot
 import kotlin.math.max
 import kotlin.math.roundToInt
 
@@ -59,7 +62,11 @@ internal object PageImageDecoder {
                 ?: throw IOException("Failed to decode image: $file")
 
         val rotated = decoded.rotatedBy(geometry.rotationDegrees)
-        val cropped = rotated.cropped(geometry)
+        // Perspective first, then crop: the boundary is expressed against the
+        // photographed page, and cropping before straightening would mean
+        // cropping coordinates that no longer exist.
+        val straightened = rotated.perspectiveCorrected(geometry)
+        val cropped = straightened.cropped(geometry)
         return cropped.downscaledTo(maxDimension)
     }
 
@@ -87,6 +94,65 @@ internal object PageImageDecoder {
         val rotated = Bitmap.createBitmap(this, 0, 0, width, height, matrix, true)
         if (rotated !== this) recycle()
         return rotated
+    }
+
+    /**
+     * Warps the page quadrilateral onto a rectangle with the platform's
+     * `Matrix.setPolyToPoly`.
+     *
+     * No CV library is involved: `setPolyToPoly` with four point pairs *is* a
+     * perspective transform, it operates on the `Bitmap` directly (so there is
+     * no conversion to and from a library's own image type), and it costs
+     * nothing in APK size — see ADR-0008.
+     *
+     * The output size is taken from the longest opposing edges, so a page
+     * photographed at an angle is straightened without being squashed to the
+     * dimensions of its foreshortened side.
+     */
+    private fun Bitmap.perspectiveCorrected(geometry: PageGeometry): Bitmap {
+        val boundary = geometry.boundary ?: return this
+
+        val source =
+            floatArrayOf(
+                boundary.topLeft.x * width,
+                boundary.topLeft.y * height,
+                boundary.topRight.x * width,
+                boundary.topRight.y * height,
+                boundary.bottomRight.x * width,
+                boundary.bottomRight.y * height,
+                boundary.bottomLeft.x * width,
+                boundary.bottomLeft.y * height,
+            )
+
+        val topEdge = hypot(source[2] - source[0], source[3] - source[1])
+        val bottomEdge = hypot(source[4] - source[6], source[5] - source[7])
+        val leftEdge = hypot(source[0] - source[6], source[1] - source[7])
+        val rightEdge = hypot(source[2] - source[4], source[3] - source[5])
+
+        val outWidth = max(1, max(topEdge, bottomEdge).roundToInt())
+        val outHeight = max(1, max(leftEdge, rightEdge).roundToInt())
+
+        val destination =
+            floatArrayOf(
+                0f,
+                0f,
+                outWidth.toFloat(),
+                0f,
+                outWidth.toFloat(),
+                outHeight.toFloat(),
+                0f,
+                outHeight.toFloat(),
+            )
+
+        val matrix = Matrix()
+        // Returns false for degenerate quadrilaterals; keeping the original is
+        // better than producing a collapsed page.
+        if (!matrix.setPolyToPoly(source, 0, destination, 0, 4)) return this
+
+        val output = Bitmap.createBitmap(outWidth, outHeight, Bitmap.Config.ARGB_8888)
+        Canvas(output).drawBitmap(this, matrix, Paint(Paint.FILTER_BITMAP_FLAG or Paint.ANTI_ALIAS_FLAG))
+        recycle()
+        return output
     }
 
     private fun Bitmap.cropped(geometry: PageGeometry): Bitmap {

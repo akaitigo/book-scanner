@@ -2,6 +2,8 @@ package dev.bookscanner.engine.production
 
 import dev.bookscanner.core.contracts.CropRect
 import dev.bookscanner.core.contracts.ExportPage
+import dev.bookscanner.core.contracts.NormalizedPoint
+import dev.bookscanner.core.contracts.PageBoundary
 import dev.bookscanner.core.contracts.PageGeometry
 import dev.bookscanner.pdf.parseJpegMetadata
 import kotlinx.coroutines.CancellationException
@@ -134,6 +136,83 @@ class JpegPdfExporterTest {
                 String(out.toByteArray(), Charsets.ISO_8859_1).contains("/Rotate 0"),
                 "re-encoded pages must have /Rotate 0",
             )
+        }
+
+    @Test
+    fun `a perspective boundary forces the re-encode path`() =
+        runTest {
+            // A boundary changes pixels just as a crop does, so it cannot be
+            // expressed as a PDF page attribute and must not pass through.
+            val geometry =
+                PageGeometry(
+                    boundary =
+                        PageBoundary(
+                            topLeft = NormalizedPoint(0.1f, 0.05f),
+                            topRight = NormalizedPoint(0.9f, 0.1f),
+                            bottomRight = NormalizedPoint(0.95f, 0.9f),
+                            bottomLeft = NormalizedPoint(0.05f, 0.95f),
+                        ),
+                )
+            val out = ByteArrayOutputStream()
+
+            val exporter = exporter()
+            exporter.export(listOf(ExportPage(jpegPage("page.jpg"), geometry)), out)
+
+            assertEquals(0, exporter.lastExportStats.passthroughPages)
+            assertEquals(1, exporter.lastExportStats.reencodedPages)
+            assertEquals(1, MinimalPdfReader(out.toByteArray()).pageCount)
+        }
+
+    @Test
+    fun `perspective correction straightens the page and changes its shape`() =
+        runTest {
+            // A trapezoid warped to a rectangle: the output must not keep the
+            // source aspect, or nothing was corrected.
+            val source = jpegPage("page.jpg", width = 400, height = 400)
+            val geometry =
+                PageGeometry(
+                    boundary =
+                        PageBoundary(
+                            topLeft = NormalizedPoint(0.3f, 0.1f),
+                            topRight = NormalizedPoint(0.7f, 0.1f),
+                            bottomRight = NormalizedPoint(0.95f, 0.9f),
+                            bottomLeft = NormalizedPoint(0.05f, 0.9f),
+                        ),
+                )
+            val out = ByteArrayOutputStream()
+
+            transformer.transform(input = source, geometry = geometry, output = out)
+
+            val metadata = requireNotNull(parseJpegMetadata(out.toByteArray()))
+            assertTrue(metadata.isEmbeddable, "the corrected page must still be embeddable")
+            // The widest edge is the bottom (0.9 of 400 = 360 px), the height
+            // the longer sides; a straight copy would be 400x400.
+            assertTrue(
+                metadata.widthPx in 340..380,
+                "expected the corrected width to follow the widest edge, got ${metadata.widthPx}",
+            )
+            assertTrue(metadata.heightPx != metadata.widthPx, "a corrected trapezoid should not stay square")
+        }
+
+    @Test
+    fun `a degenerate boundary leaves the page untouched instead of collapsing it`() =
+        runTest {
+            val collapsed =
+                PageGeometry(
+                    boundary =
+                        PageBoundary(
+                            topLeft = NormalizedPoint(0.5f, 0.5f),
+                            topRight = NormalizedPoint(0.5f, 0.5f),
+                            bottomRight = NormalizedPoint(0.5f, 0.5f),
+                            bottomLeft = NormalizedPoint(0.5f, 0.5f),
+                        ),
+                )
+            val out = ByteArrayOutputStream()
+
+            transformer.transform(input = jpegPage("page.jpg"), geometry = collapsed, output = out)
+
+            val metadata = requireNotNull(parseJpegMetadata(out.toByteArray()))
+            assertTrue(metadata.widthPx > 1 && metadata.heightPx > 1, "the page must survive a bad boundary")
         }
 
     @Test

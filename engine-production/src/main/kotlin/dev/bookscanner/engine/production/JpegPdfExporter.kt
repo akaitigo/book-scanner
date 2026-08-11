@@ -80,7 +80,9 @@ class JpegPdfExporter(
         page: ExportPage,
         writer: PdfImageDocumentWriter,
     ): Boolean {
-        if (page.geometry.crop == null) {
+        // Rotation alone can be a page attribute; a crop or a perspective
+        // correction cannot, because both change the pixels.
+        if (!page.geometry.requiresRedraw) {
             val bytes = page.imageFile.readBytes()
             if (parseJpegMetadata(bytes)?.isEmbeddable == true) {
                 writer.addPage(bytes, rotationDegrees = page.geometry.rotationDegrees)

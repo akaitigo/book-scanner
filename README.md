@@ -6,10 +6,11 @@ An open-source Android app for scanning your own paper books into readable —
 and later searchable — PDFs. Everything runs on the device; the app has no
 network permission at all.
 
-**Status: Milestone 1 (usable scanner) complete.** Capture or import pages,
-manage a scanning session, crop and rotate, reorder and delete, export one PDF,
-and resume after an interruption. Automatic page detection and OCR are
-Milestones 2–3 and are not built yet — see [docs/roadmap.md](docs/roadmap.md).
+**Status: Milestone 1 complete; Milestone 2 under way.** Capture or import
+pages, manage a scanning session, detect page edges automatically, correct
+perspective, crop and rotate, reorder and delete, export one PDF, and resume
+after an interruption. OCR is Milestone 3 — see
+[docs/roadmap.md](docs/roadmap.md).
 
 ## What makes it different
 
@@ -21,6 +22,14 @@ re-encode, no generational loss. Measured overhead: **470 bytes per page**;
 exported PDFs come out at ~1.00× the size of their source images. See
 [docs/pdf.md](docs/pdf.md) and
 [ADR-0007](docs/adr/0007-pdf-export-jpeg-passthrough.md).
+
+**Page detection you can measure.** Edge detection, Hough lines and
+quadrilateral fitting are hand-written Kotlin, so detection accuracy is a
+number in CI (mean corner error **0.002–0.003** of the frame on synthetic
+pages) rather than a claim. OpenCV was evaluated and measured out: its Android
+binaries link against bionic and cannot load in a host JVM, so a detector built
+on it would have been untestable here —
+[ADR-0008](docs/adr/0008-page-detection.md).
 
 **Two interchangeable engine families.** Production implementations use the best
 practical library or platform API; From-Scratch implementations reimplement the
@@ -68,6 +77,7 @@ capture, predictive back, text scaling, real memory — is listed in
 core-contracts/     pure JVM — domain model + engine contracts. No Android.
 core-session/       pure JVM — file-backed sessions, atomic manifests, ingest.
 pdf-writer/         pure JVM — minimal image-only PDF writer, JPEG headers.
+vision/             pure JVM — image primitives and the page detector.
 engine-production/  Android — normalizer, transformer, PDF exporter.
 app/                Android — Compose UI, CameraX, composition root.
 ```

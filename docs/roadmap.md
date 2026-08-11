@@ -29,7 +29,7 @@
 ## Milestone 2 — Production Image Pipeline
 - [x] Evaluate page-detection technologies
 - [x] Implement automatic page detection (in-house, `:vision`; measured in CI)
-- [ ] Perspective correction
+- [x] Perspective correction (platform `Matrix.setPolyToPoly`, no CV dependency)
 - [ ] image enhancement
 - [ ] quality presets
 - [ ] benchmark pipeline
@@ -63,9 +63,9 @@
 - [ ] morphology
 - [ ] connected components
 - [ ] line/contour detection
-- [ ] homography
-- [ ] perspective warp
-- [ ] custom page detector
+- [x] homography
+- [x] perspective warp
+- [x] custom page detector
 - [ ] side-by-side benchmark vs Production
 
 ## Milestone 6 — From-Scratch PDF

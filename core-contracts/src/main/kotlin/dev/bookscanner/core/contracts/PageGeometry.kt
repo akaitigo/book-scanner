@@ -11,6 +11,17 @@ package dev.bookscanner.core.contracts
 data class PageGeometry(
     val rotationDegrees: Int = 0,
     val crop: CropRect? = null,
+    /**
+     * Four corners of the page within the image, for perspective correction.
+     *
+     * A photographed page is a perspective projection: its edges are not
+     * parallel, so an axis-aligned [crop] cannot straighten it. When present
+     * this is applied first — the quadrilateral is warped to a rectangle — and
+     * [crop] then applies to the corrected result.
+     *
+     * Like [crop], coordinates are expressed after [rotationDegrees].
+     */
+    val boundary: PageBoundary? = null,
 ) {
     init {
         require(rotationDegrees in VALID_ROTATIONS) {
@@ -25,7 +36,11 @@ data class PageGeometry(
     }
 
     val isIdentity: Boolean
-        get() = rotationDegrees == 0 && crop == null
+        get() = rotationDegrees == 0 && crop == null && boundary == null
+
+    /** True when producing this page requires touching pixels. */
+    val requiresRedraw: Boolean
+        get() = crop != null || boundary != null
 
     companion object {
         val VALID_ROTATIONS = setOf(0, 90, 180, 270)
