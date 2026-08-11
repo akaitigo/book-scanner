@@ -164,6 +164,13 @@ Test: `app` → `PrivacyManifestTest`.
 Test: `core-session` → `FileScanRepositoryTest.book scale manifest round trips
 quickly`.
 
+## Verification status of the harness itself
+
+| Item | Status |
+|---|---|
+| `./gradlew build ktlintCheck` from a **clean clone** | Passing — 152 tests, 2026-08-11. Run against a fresh `git clone` to prove nothing depends on untracked local files. |
+| `.github/workflows/ci.yml` | **Never executed.** The repository has no remote yet, so CI has produced zero runs. `actionlint` reports it clean and the commands it runs are the ones verified above, but that is not the same as a green run — do not describe CI as passing until it has. |
+
 ## Not yet measured
 
 Stated explicitly so absence is not mistaken for a result:

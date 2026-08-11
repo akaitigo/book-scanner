@@ -55,6 +55,10 @@ org.gradle.java.installations.paths=/path/to/jdk-17
 There is no emulator job: the acceptance gates are all measurable as JVM tests,
 which is deliberate — see [CONTRIBUTING.md](CONTRIBUTING.md#tests).
 
+The CI workflow has not run yet — the repository has no remote. `./gradlew
+build ktlintCheck` passes from a clean clone (152 tests), and `actionlint`
+reports the workflow clean, but neither is a green CI run.
+
 ## Modules
 
 ```text
