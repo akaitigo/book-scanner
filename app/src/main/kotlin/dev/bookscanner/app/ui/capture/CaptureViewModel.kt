@@ -11,6 +11,7 @@ import dev.bookscanner.core.contracts.ScannedPage
 import dev.bookscanner.core.contracts.SessionId
 import dev.bookscanner.core.session.PageIngestor
 import dev.bookscanner.vision.AutoCaptureController
+import dev.bookscanner.vision.PageSignature
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -44,6 +45,14 @@ class CaptureViewModel(
         val holdProgress: Float = 0f,
         /** Most recent detection, drawn over the preview. Advisory only. */
         val previewBoundary: PageBoundary? = null,
+        /**
+         * Bumped every time a page is actually stored. The UI watches it to
+         * flash and vibrate — without that, an automatic capture is invisible,
+         * and the user re-shoots the page they already have.
+         */
+        val captureCount: Int = 0,
+        /** Set when an automatic capture was skipped as a repeat. */
+        val duplicateSkipped: Boolean = false,
         val errorMessage: String? = null,
     ) {
         val busy: Boolean get() = capturing || importing
@@ -59,6 +68,13 @@ class CaptureViewModel(
 
     private var framesSeen = 0L
     private var latestBoundary: PageBoundary? = null
+    private var lastPageSignature: PageSignature? = null
+
+    /**
+     * Fingerprints captured bytes. Injected so the ViewModel stays testable
+     * without a JPEG decoder; the app supplies the Android one.
+     */
+    var signatureOf: (ByteArray) -> PageSignature? = { null }
 
     init {
         refresh()
@@ -73,20 +89,52 @@ class CaptureViewModel(
     }
 
     /**
-     * Appends a captured frame. [capturing] gates the shutter so a rapid
-     * double-tap cannot interleave two staged pages and reorder the book.
+     * Appends a captured frame taken automatically.
+     *
+     * Unlike [onFrameCaptured] this drops a page that repeats the previous one.
+     * Pressing the shutter is an instruction and is always obeyed; firing by
+     * itself is a guess, and a guess should not fill the session with the same
+     * page twice.
      */
-    fun onFrameCaptured(bytes: ByteArray) {
+    fun onAutoFrameCaptured(bytes: ByteArray) = ingest(bytes, skipDuplicates = true)
+
+    /**
+     * Appends a frame the user asked for. [capturing] gates the shutter so a
+     * rapid double-tap cannot interleave two staged pages and reorder the book.
+     */
+    fun onFrameCaptured(bytes: ByteArray) = ingest(bytes, skipDuplicates = false)
+
+    private fun ingest(
+        bytes: ByteArray,
+        skipDuplicates: Boolean,
+    ) {
         // The guard is applied synchronously, before launching: setting it
         // inside the coroutine lets two rapid shutter presses both pass the
         // check and interleave their staged pages.
         if (!claimBusy { it.copy(capturing = true) }) return
         viewModelScope.launch {
+            val signature = runCatching { signatureOf(bytes) }.getOrNull()
+            val repeatOfLast =
+                skipDuplicates && signature != null &&
+                    lastPageSignature?.looksLikeSamePageAs(signature) == true
+
+            if (repeatOfLast) {
+                _state.update { it.copy(capturing = false, duplicateSkipped = true) }
+                return@launch
+            }
+
             runCatching { ingestor.ingest(sessionId, bytes) }
-                .onFailure { error -> _state.update { it.copy(errorMessage = error.readableMessage()) } }
+                .onSuccess {
+                    if (signature != null) lastPageSignature = signature
+                    _state.update { it.copy(captureCount = it.captureCount + 1) }
+                }.onFailure { error -> _state.update { it.copy(errorMessage = error.readableMessage()) } }
             _state.update { it.copy(capturing = false) }
             refresh()
         }
+    }
+
+    fun consumeDuplicateSkipped() {
+        _state.update { it.copy(duplicateSkipped = false) }
     }
 
     fun onCaptureFailed(error: Throwable) {

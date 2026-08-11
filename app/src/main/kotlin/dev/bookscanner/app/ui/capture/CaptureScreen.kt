@@ -63,7 +63,9 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.contentDescription
@@ -76,6 +78,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.bookscanner.app.ui.components.PageImage
 import dev.bookscanner.core.contracts.GrayscaleImage
 import dev.bookscanner.vision.AutoCaptureController
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.util.concurrent.Executors
 
@@ -136,6 +139,27 @@ fun CaptureScreen(
             snackbarHostState.showSnackbar(message)
             viewModel.consumeError()
         }
+    }
+
+    if (state.duplicateSkipped) {
+        LaunchedEffect(state.captureCount, state.duplicateSkipped) {
+            // Says what happened and why nothing was added. Silence here is
+            // what made the user re-aim at a page they already had.
+            snackbarHostState.showSnackbar("Same page as the last one — skipped")
+            viewModel.consumeDuplicateSkipped()
+        }
+    }
+
+    // A capture that happens on its own has to be *felt*, not inferred from a
+    // number quietly changing in the title bar.
+    val haptics = LocalHapticFeedback.current
+    var flashing by remember { mutableStateOf(false) }
+    LaunchedEffect(state.captureCount) {
+        if (state.captureCount == 0) return@LaunchedEffect
+        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+        flashing = true
+        delay(FLASH_MILLIS)
+        flashing = false
     }
 
     Scaffold(
@@ -205,6 +229,11 @@ fun CaptureScreen(
                             modifier = Modifier.fillMaxSize(),
                             onCameraError = { error -> viewModel.onCaptureFailed(error) },
                         )
+                        if (flashing) {
+                            // A white wash over the preview: the same signal a
+                            // camera app gives, and unmistakable at a glance.
+                            Box(Modifier.fillMaxSize().background(Color.White.copy(alpha = 0.75f)))
+                        }
                         if (state.autoCapture) {
                             AutoCaptureAnalyzer(
                                 controller = controller,
@@ -212,7 +241,7 @@ fun CaptureScreen(
                                 onCapture = {
                                     scope.launch {
                                         runCatching { controller.capture(ContextCompat.getMainExecutor(context)) }
-                                            .onSuccess(viewModel::onFrameCaptured)
+                                            .onSuccess(viewModel::onAutoFrameCaptured)
                                             .onFailure(viewModel::onCaptureFailed)
                                     }
                                 },
@@ -448,3 +477,6 @@ private fun pageCountLabel(count: Int): String =
 
 private val SHUTTER_SIZE = 72.dp
 private const val MAX_IMPORT_COUNT = 100
+
+/** Long enough to notice, short enough not to hide the next page. */
+private const val FLASH_MILLIS = 220L

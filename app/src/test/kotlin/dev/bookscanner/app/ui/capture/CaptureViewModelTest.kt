@@ -9,6 +9,7 @@ import dev.bookscanner.core.contracts.NormalizedPage
 import dev.bookscanner.core.contracts.PageGeometry
 import dev.bookscanner.core.contracts.PageImageNormalizer
 import dev.bookscanner.core.session.PageIngestor
+import dev.bookscanner.vision.PageSignature
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 import org.junit.Rule
@@ -311,5 +312,145 @@ class CaptureViewModelTest {
                 viewModel.state.value.recentPages
                     .map { it.page.id }
             assertContentEquals(documentOrder.reversed(), stripOrder, "the strip should lead with the newest page")
+        }
+
+    /**
+     * A fingerprint keyed on the frame's content, standing in for the Android
+     * JPEG decoder the app injects. Whether two *real* pages are told apart is
+     * `PageSignatureTest`'s subject; what matters here is that the ViewModel
+     * consults the fingerprint at all, and only when it fired by itself.
+     */
+    private fun signatureOfName(bytes: ByteArray): PageSignature {
+        val name = bytes.decodeToString()
+        var seed = name.hashCode().toLong() * 6364136223846793005L + 1442695040888963407L
+        val pixels =
+            ByteArray(128 * 96) {
+                seed = seed * 6364136223846793005L + 1442695040888963407L
+                ((seed ushr 40).toInt() and 0xFF).toByte()
+            }
+        return PageSignature.of(GrayscaleImage(128, 96, pixels))
+    }
+
+    @Test
+    fun `an automatic capture of the page already taken is skipped`() =
+        runTest {
+            // The reported problem: an automatic capture gives no sign it
+            // happened, so the same page gets photographed twice.
+            val normalizer = RecordingNormalizer()
+            val viewModel = viewModel(normalizer).apply { signatureOf = ::signatureOfName }
+            advanceUntilIdle()
+
+            viewModel.onAutoFrameCaptured("page-200".toByteArray())
+            advanceUntilIdle()
+            viewModel.onAutoFrameCaptured("page-200".toByteArray())
+            advanceUntilIdle()
+
+            assertContentEquals(listOf("page-200"), normalizer.received, "the repeat should not have been stored")
+            assertTrue(
+                viewModel.state.value.duplicateSkipped,
+                "the skip has to be visible; a silent one is why this happened",
+            )
+            assertEquals(1, viewModel.state.value.captureCount)
+        }
+
+    @Test
+    fun `pressing the shutter twice on one page stores both`() =
+        runTest {
+            // Deliberate: the shutter is an instruction. Only a capture the app
+            // decided to make on its own may be second-guessed.
+            val normalizer = RecordingNormalizer()
+            val viewModel = viewModel(normalizer).apply { signatureOf = ::signatureOfName }
+            advanceUntilIdle()
+
+            viewModel.onFrameCaptured("page-200".toByteArray())
+            advanceUntilIdle()
+            viewModel.onFrameCaptured("page-200".toByteArray())
+            advanceUntilIdle()
+
+            assertContentEquals(listOf("page-200", "page-200"), normalizer.received)
+            assertTrue(!viewModel.state.value.duplicateSkipped)
+            assertEquals(2, viewModel.state.value.captureCount)
+        }
+
+    @Test
+    fun `turning the page is not mistaken for a repeat`() =
+        runTest {
+            val normalizer = RecordingNormalizer()
+            val viewModel = viewModel(normalizer).apply { signatureOf = ::signatureOfName }
+            advanceUntilIdle()
+
+            viewModel.onAutoFrameCaptured("page-200".toByteArray())
+            advanceUntilIdle()
+            viewModel.onAutoFrameCaptured("page-201".toByteArray())
+            advanceUntilIdle()
+
+            assertContentEquals(listOf("page-200", "page-201"), normalizer.received)
+            assertEquals(2, viewModel.state.value.captureCount)
+        }
+
+    @Test
+    fun `going back to a page after another one is stored again`() =
+        runTest {
+            // Only the immediately preceding page is compared. Photographing a
+            // page again after moving on is a re-shoot the user meant, and a
+            // book legitimately repeats near-identical pages far apart.
+            val normalizer = RecordingNormalizer()
+            val viewModel = viewModel(normalizer).apply { signatureOf = ::signatureOfName }
+            advanceUntilIdle()
+
+            listOf("page-200", "page-201", "page-200").forEach {
+                viewModel.onAutoFrameCaptured(it.toByteArray())
+                advanceUntilIdle()
+            }
+
+            assertContentEquals(listOf("page-200", "page-201", "page-200"), normalizer.received)
+        }
+
+    @Test
+    fun `without a fingerprint every automatic capture is kept`() =
+        runTest {
+            // The decoder can fail on a frame. Losing a page the user wanted is
+            // the worse error, so an unusable fingerprint means "keep it".
+            val normalizer = RecordingNormalizer()
+            val viewModel = viewModel(normalizer)
+            advanceUntilIdle()
+
+            viewModel.onAutoFrameCaptured("page-200".toByteArray())
+            advanceUntilIdle()
+            viewModel.onAutoFrameCaptured("page-200".toByteArray())
+            advanceUntilIdle()
+
+            assertContentEquals(listOf("page-200", "page-200"), normalizer.received)
+        }
+
+    @Test
+    fun `a skip notice is cleared once shown`() =
+        runTest {
+            val viewModel = viewModel(RecordingNormalizer()).apply { signatureOf = ::signatureOfName }
+            advanceUntilIdle()
+
+            viewModel.onAutoFrameCaptured("page-200".toByteArray())
+            advanceUntilIdle()
+            viewModel.onAutoFrameCaptured("page-200".toByteArray())
+            advanceUntilIdle()
+            viewModel.consumeDuplicateSkipped()
+
+            assertTrue(!viewModel.state.value.duplicateSkipped, "a notice that never clears would repeat forever")
+        }
+
+    @Test
+    fun `a failed capture does not count`() =
+        runTest {
+            // captureCount drives the flash and the vibration; flashing for a
+            // page that was not stored would teach the user to trust it wrongly.
+            val normalizer = RecordingNormalizer(failOn = setOf("broken"))
+            val viewModel = viewModel(normalizer)
+            advanceUntilIdle()
+
+            viewModel.onFrameCaptured("broken".toByteArray())
+            advanceUntilIdle()
+
+            assertEquals(0, viewModel.state.value.captureCount)
+            assertNotNull(viewModel.state.value.errorMessage)
         }
 }

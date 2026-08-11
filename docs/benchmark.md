@@ -398,8 +398,7 @@ The "turn the page" state then prevented it re-shooting the same scene.
 `AutoCaptureController` is pure JVM with 13 tests, because "turn the page,
 settle, hold" is a *sequence* and a camera makes a sequence hard to reproduce
 twice. Detection is fed in as an advisory signal — it draws the outline and
-shortens the required hold from 700 ms to 450 ms, but its absence never blocks
-a capture.
+shortens the required hold, but its absence never blocks a capture.
 
 **A sharpness floor was added after the first real use.** Left to stillness
 alone, auto-capture photographed a blurred floor and a cable while the phone
@@ -418,6 +417,46 @@ the button) is likelier than a junk one. It is a **quality floor, not a page
 test**: "is there something readable in view" is answerable from the pixels,
 while "is this a page" is not, at the accuracy measured above.
 
+### The three faults found in real use (2026-08-12)
+
+Scanning a real book with auto-capture on produced three complaints, all of
+them about the same thing: the app acted, and the user could not tell.
+
+**1. The hold was too short.** 700 ms of stillness, or 450 ms with a detected
+boundary, fires while the page is still being settled. Both were roughly
+doubled — **1400 ms** and **900 ms**. This is a judgement, not a measurement:
+there is no way to measure "the user had finished placing the page" without the
+user. It is recorded here as a judgement so it is not later cited as a result.
+
+**2. The same page was captured twice, and the existing guard could not see
+it.** Two captures 7.7 s apart were confirmed to be the same page of the same
+book. Raw preview difference between them: **22.69**, against a
+`newSceneThreshold` of 8 — so as far as the controller was concerned, the page
+had been turned. Re-aiming shifts and re-exposes the page enough that pixels no
+longer correspond.
+
+A shrink-normalise-align fingerprint does see it. Measured over the session's
+own captures:
+
+| Pair | Distance |
+|---|---:|
+| The duplicate pair (same page, re-aimed) | **0.170** |
+| Five pairs of genuinely different pages | 0.516 – 0.680 |
+
+The threshold is **0.30** — between the populations and nearer the duplicates,
+because keeping a duplicate costs a delete while dropping a wanted page costs a
+page the user believes they have. Only the *previous* page is compared, and
+only for captures the app made on its own: pressing the shutter is an
+instruction, and a book legitimately repeats near-identical pages far apart.
+
+**3. A capture that happens by itself is invisible.** This is what caused (2) —
+with no shutter press, no sound and no visible change, there is nothing to tell
+you the page is already in the session, so you re-aim and shoot it again. The
+capture now flashes the preview white for 220 ms and vibrates, driven by a
+counter that only increments when a page is actually *stored*; a failed ingest
+deliberately does not flash. A skipped duplicate says so in words, because a
+silent skip has the same failure mode as a silent capture.
+
 ## What would move this forward
 
 A labelled set: photographs with hand-marked corners, covering the categories
@@ -431,6 +470,12 @@ listed above. Until then, detection accuracy on real pages is characterised
   the binding, gutter shadows and low light remain untried.
 - Any comparison against OpenCV, which would need a device (ADR-0008).
 - On-device latency; the figure above is a desktop JVM.
+- **Duplicate detection beyond one confirmed pair.** 0.170 versus 0.516–0.680
+  is a wide margin, but it rests on a single true-duplicate sample. Two facing
+  pages of a spread, a page shot from noticeably different distances, and near
+  identical pages (indexes, tables) are untested.
+- Whether the lengthened hold is actually right. It was not measured; see
+  above.
 
 ## Still not measured on device
 

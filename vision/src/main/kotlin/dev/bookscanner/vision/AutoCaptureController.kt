@@ -29,10 +29,14 @@ class AutoCaptureController(
          */
         val stillnessThreshold: Float = 2.5f,
         /**
-         * How long the frame must stay still before firing. Long enough that
-         * the hand has actually settled, short enough not to feel broken.
+         * How long the frame must stay still before firing.
+         *
+         * Raised from 700 ms after the first real use: it fired while the user
+         * was still settling, which is startling and produces the framing they
+         * were about to correct. The progress ring makes the wait legible, so
+         * a longer one reads as deliberate rather than slow.
          */
-        val requiredStillMillis: Long = 700,
+        val requiredStillMillis: Long = 1_400,
         /**
          * How different a frame must be from the last captured one to count as
          * a new page. Without this the camera would fire repeatedly at a page
@@ -46,7 +50,7 @@ class AutoCaptureController(
          * what we want, so the confirmation can be quicker. It never *extends*
          * it, because detection failing must not block capture.
          */
-        val detectedStillMillis: Long = 450,
+        val detectedStillMillis: Long = 900,
         /**
          * Mean absolute difference between neighbouring pixels, below which the
          * frame is judged too featureless to be worth capturing.

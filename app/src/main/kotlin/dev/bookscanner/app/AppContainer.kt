@@ -1,6 +1,7 @@
 package dev.bookscanner.app
 
 import android.content.Context
+import android.graphics.BitmapFactory
 import dev.bookscanner.core.contracts.PageDetector
 import dev.bookscanner.core.contracts.PageImageNormalizer
 import dev.bookscanner.core.contracts.PageTransformer
@@ -12,7 +13,9 @@ import dev.bookscanner.engine.production.AndroidPageDetection
 import dev.bookscanner.engine.production.AndroidPageImageNormalizer
 import dev.bookscanner.engine.production.BitmapPageTransformer
 import dev.bookscanner.engine.production.JpegPdfExporter
+import dev.bookscanner.engine.production.toGrayscale
 import dev.bookscanner.vision.ContourPageDetector
+import dev.bookscanner.vision.PageSignature
 import java.io.File
 
 /**
@@ -45,7 +48,26 @@ class AppContainer(
 
     val ingestor = PageIngestor(store = repository, normalizer = normalizer)
 
+    /**
+     * Fingerprints captured JPEG bytes so a repeat of the previous page can be
+     * recognised. Decoding small is deliberate: the signature is 64x48, so
+     * anything beyond a few hundred pixels is wasted work on the capture path.
+     */
+    fun pageSignatureOf(bytes: ByteArray): PageSignature? =
+        runCatching {
+            val options = BitmapFactory.Options().apply { inSampleSize = SIGNATURE_SAMPLE_SIZE }
+            val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options) ?: return null
+            try {
+                PageSignature.of(bitmap.toGrayscale())
+            } finally {
+                bitmap.recycle()
+            }
+        }.getOrNull()
+
     companion object {
+        /** 4080 px / 16 ≈ 255 px, comfortably above the 64-wide signature. */
+        private const val SIGNATURE_SAMPLE_SIZE = 16
+
         /**
          * Sessions live in app-private storage: no permission is needed and
          * scans are not exposed to other apps or to media scanners.

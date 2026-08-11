@@ -60,8 +60,11 @@ class AndroidPageDetection(
  * Not a plain channel average: the eye is far more sensitive to green than to
  * blue, and averaging would make a blue page edge nearly vanish while
  * exaggerating a green one.
+ *
+ * Public because the capture screen fingerprints frames for duplicate
+ * detection, and that has to see the same luminance the detector does.
  */
-internal fun Bitmap.toGrayscale(): GrayscaleImage {
+fun Bitmap.toGrayscale(): GrayscaleImage {
     val argb = IntArray(width * height)
     getPixels(argb, 0, width, 0, 0, width, height)
 

@@ -84,8 +84,15 @@ class AutoCaptureControllerTest {
         val (decision, firedAt) = holdStill(controller, startMillis = 0, level = 200)
 
         assertTrue(decision.shouldCapture, "holding still should be enough to capture")
-        // 700 ms of stillness, plus the frame that establishes a baseline.
-        assertTrue(firedAt in 700..900, "fired at ${firedAt}ms, expected shortly after the 700ms hold")
+        // The configured hold, plus the frame that establishes a baseline. The
+        // bound is derived rather than written out: the hold was lengthened
+        // once already, after a user found the shutter fired before they had
+        // finished settling the page.
+        val hold = AutoCaptureController.Settings().requiredStillMillis
+        assertTrue(
+            firedAt in hold..(hold + 200),
+            "fired at ${firedAt}ms, expected shortly after the ${hold}ms hold",
+        )
     }
 
     @Test

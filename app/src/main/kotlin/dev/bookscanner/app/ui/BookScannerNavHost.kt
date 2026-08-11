@@ -71,7 +71,7 @@ fun BookScannerNavHost(
                                 repository = container.repository,
                                 ingestor = container.ingestor,
                                 detector = container.detector,
-                            )
+                            ).apply { signatureOf = container::pageSignatureOf }
                         },
                 )
             CaptureScreen(
