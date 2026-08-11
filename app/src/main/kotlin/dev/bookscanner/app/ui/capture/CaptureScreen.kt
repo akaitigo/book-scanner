@@ -60,7 +60,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import coil3.compose.AsyncImage
+import dev.bookscanner.app.ui.components.PageImage
 import kotlinx.coroutines.launch
 
 object CaptureTags {
@@ -212,8 +212,9 @@ fun CaptureScreen(
                 ) {
                     items(state.recentPages, key = { it.page.id.value }) { thumbnail ->
                         val position = state.pageCount - state.recentPages.indexOf(thumbnail)
-                        AsyncImage(
-                            model = thumbnail.file,
+                        PageImage(
+                            file = thumbnail.file,
+                            rotationDegrees = thumbnail.page.geometry.rotationDegrees,
                             contentDescription = "Page $position",
                             modifier =
                                 Modifier

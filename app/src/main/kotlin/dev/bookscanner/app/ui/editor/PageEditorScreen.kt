@@ -2,6 +2,7 @@ package dev.bookscanner.app.ui.editor
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.Box
@@ -9,6 +10,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.systemGestureExclusion
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Crop
@@ -31,27 +33,23 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.layout.onGloballyPositioned
-import androidx.compose.ui.layout.onSizeChanged
-import androidx.compose.ui.layout.positionInParent
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import coil3.compose.AsyncImage
+import coil3.compose.rememberAsyncImagePainter
 import dev.bookscanner.app.ui.components.ErrorState
 import dev.bookscanner.app.ui.components.LoadingState
+import dev.bookscanner.app.ui.components.drawPageImage
 import dev.bookscanner.core.contracts.CropRect
 import kotlin.math.abs
 
@@ -184,102 +182,119 @@ fun PageEditorScreen(
 /**
  * Image preview with a draggable crop rectangle.
  *
- * The crop is stored normalized (0..1), so it survives rotation, zoom and any
- * screen size. The gesture works in pixels and converts at the boundary —
- * keeping pixel maths out of the domain model.
+ * The image and the overlay are drawn in **one** `Canvas`, in one coordinate
+ * system. An earlier version placed the image with `ContentScale.Fit` and then
+ * measured the *composable* bounds for the overlay; because Fit letterboxes,
+ * the crop rectangle covered the empty margins as well as the picture, and the
+ * handles sat at the composable's edges rather than the image's. Sharing a
+ * single computed rect removes that whole class of mismatch.
+ *
+ * The crop stays normalized (0..1) against what the user sees, which is what
+ * `PageGeometry` specifies: crop coordinates are expressed after rotation.
  */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun CropEditor(
     state: PageEditorViewModel.UiState,
     onCropChanged: (left: Float, top: Float, right: Float, bottom: Float) -> Unit,
 ) {
-    var imageBounds by remember { mutableStateOf(Rect.Zero) }
-    var containerSize by remember { mutableStateOf(IntSize.Zero) }
+    val painter = rememberAsyncImagePainter(model = state.imageFile)
     var activeHandle by remember { mutableStateOf<Handle?>(null) }
+    var displayRect by remember { mutableStateOf(Rect.Zero) }
 
+    val rotation = state.geometry.rotationDegrees
     val crop = state.editableCrop
 
-    Box(
+    // Read inside the gesture without restarting it when the crop changes.
+    val currentCrop by rememberUpdatedState(crop)
+
+    Canvas(
         modifier =
             Modifier
+                // The canvas deliberately fills the whole area and insets the
+                // *image* instead. With padding on the canvas, each corner
+                // handle sat on its edge, so the outer half of its 48 dp touch
+                // region fell outside the canvas and never received the touch —
+                // on a Pixel 7 the handle simply could not be grabbed.
                 .fillMaxSize()
-                .onSizeChanged { containerSize = it },
-        contentAlignment = Alignment.Center,
-    ) {
-        AsyncImage(
-            model = state.imageFile,
-            contentDescription = "Page preview",
-            contentScale = ContentScale.Fit,
-            modifier =
-                Modifier
-                    .fillMaxSize()
-                    .padding(16.dp)
-                    .rotatedByDegrees(state.geometry.rotationDegrees)
-                    .onGloballyPositioned { coordinates ->
-                        val size = coordinates.size
-                        val position = coordinates.positionInParent()
-                        imageBounds =
-                            Rect(
-                                offset = Offset(position.x, position.y),
-                                size = Size(size.width.toFloat(), size.height.toFloat()),
+                // Without this, dragging a crop corner near the left or right
+                // edge is swallowed by the system back gesture — verified on a
+                // Pixel 7, where the drag closed the screen instead of cropping.
+                // Android caps the excluded height per edge, so the padding
+                // above also matters: it keeps the handles off the very edge.
+                .systemGestureExclusion()
+                // Keyed on the display rect only. Keying on the crop as well
+                // restarted this block the instant the first drag event changed
+                // it, cancelling the gesture — a drag across the screen moved
+                // the corner by one pixel and stopped.
+                .pointerInput(displayRect) {
+                    detectDragGestures(
+                        onDragStart = { position ->
+                            activeHandle =
+                                nearestHandle(
+                                    position = position,
+                                    crop = currentCrop,
+                                    bounds = displayRect,
+                                    touchRadiusPx = HANDLE_TOUCH_RADIUS.toPx(),
+                                )
+                        },
+                        onDragEnd = { activeHandle = null },
+                        onDragCancel = { activeHandle = null },
+                    ) { change, amount ->
+                        val handle = activeHandle ?: return@detectDragGestures
+                        if (displayRect.width <= 0f || displayRect.height <= 0f) return@detectDragGestures
+                        change.consume()
+                        val moved =
+                            handle.apply(
+                                currentCrop,
+                                amount.x / displayRect.width,
+                                amount.y / displayRect.height,
                             )
-                    }.testTag(PageEditorTags.IMAGE),
+                        onCropChanged(moved.left, moved.top, moved.right, moved.bottom)
+                    }
+                }.testTag(PageEditorTags.IMAGE),
+    ) {
+        // The image and the overlay share one rect, which is the whole point:
+        // an earlier version measured the composable's bounds instead, and a
+        // fitted image is letterboxed, so the crop covered the margins too.
+        val display = drawPageImage(painter, rotation, inset = EDITOR_PADDING.toPx())
+        if (display.width <= 0f || display.height <= 0f) return@Canvas
+        displayRect = display
+
+        val cropRect =
+            Rect(
+                left = display.left + crop.left * display.width,
+                top = display.top + crop.top * display.height,
+                right = display.left + crop.right * display.width,
+                bottom = display.top + crop.bottom * display.height,
+            )
+
+        // Four rectangles around the kept area rather than a punched hole:
+        // BlendMode.Clear needs an offscreen compositing layer to punch through,
+        // and without one it silently did nothing here.
+        val dim = Color.Black.copy(alpha = 0.55f)
+        drawRect(dim, topLeft = Offset.Zero, size = Size(size.width, cropRect.top))
+        drawRect(
+            dim,
+            topLeft = Offset(0f, cropRect.bottom),
+            size = Size(size.width, (size.height - cropRect.bottom).coerceAtLeast(0f)),
+        )
+        drawRect(dim, topLeft = Offset(0f, cropRect.top), size = Size(cropRect.left, cropRect.height))
+        drawRect(
+            dim,
+            topLeft = Offset(cropRect.right, cropRect.top),
+            size = Size((size.width - cropRect.right).coerceAtLeast(0f), cropRect.height),
         )
 
-        if (imageBounds.width > 0f && imageBounds.height > 0f) {
-            Canvas(
-                modifier =
-                    Modifier
-                        .fillMaxSize()
-                        .pointerInput(imageBounds, crop) {
-                            detectDragGestures(
-                                onDragStart = { position ->
-                                    activeHandle =
-                                        nearestHandle(
-                                            position = position,
-                                            crop = crop,
-                                            bounds = imageBounds,
-                                            touchRadiusPx = HANDLE_TOUCH_RADIUS.toPx(),
-                                        )
-                                },
-                                onDragEnd = { activeHandle = null },
-                                onDragCancel = { activeHandle = null },
-                            ) { change, amount ->
-                                change.consume()
-                                val handle = activeHandle ?: return@detectDragGestures
-                                val dx = amount.x / imageBounds.width
-                                val dy = amount.y / imageBounds.height
-                                val moved = handle.apply(crop, dx, dy)
-                                onCropChanged(moved.left, moved.top, moved.right, moved.bottom)
-                            }
-                        },
-            ) {
-                val rect =
-                    Rect(
-                        left = imageBounds.left + crop.left * imageBounds.width,
-                        top = imageBounds.top + crop.top * imageBounds.height,
-                        right = imageBounds.left + crop.right * imageBounds.width,
-                        bottom = imageBounds.top + crop.bottom * imageBounds.height,
-                    )
-
-                // Dim everything outside the crop so the kept area reads at a glance.
-                drawRect(color = Color.Black.copy(alpha = 0.45f), size = size)
-                drawRect(
-                    color = Color.Transparent,
-                    topLeft = rect.topLeft,
-                    size = rect.size,
-                    blendMode = androidx.compose.ui.graphics.BlendMode.Clear,
-                )
-                drawRect(
-                    color = Color.White,
-                    topLeft = rect.topLeft,
-                    size = rect.size,
-                    style = Stroke(width = 3f),
-                )
-                listOf(rect.topLeft, rect.topRight, rect.bottomLeft, rect.bottomRight).forEach { corner ->
-                    drawCircle(color = Color.White, radius = HANDLE_RADIUS.toPx(), center = corner)
-                }
-            }
+        drawRect(
+            color = Color.White,
+            topLeft = cropRect.topLeft,
+            size = cropRect.size,
+            style = Stroke(width = CROP_BORDER_WIDTH.toPx()),
+        )
+        listOf(cropRect.topLeft, cropRect.topRight, cropRect.bottomLeft, cropRect.bottomRight).forEach { corner ->
+            drawCircle(color = Color.Black.copy(alpha = 0.5f), radius = HANDLE_RADIUS.toPx() * 1.3f, center = corner)
+            drawCircle(color = Color.White, radius = HANDLE_RADIUS.toPx(), center = corner)
         }
     }
 }
@@ -318,6 +333,7 @@ private fun nearestHandle(
     bounds: Rect,
     touchRadiusPx: Float,
 ): Handle? {
+    if (bounds.width <= 0f || bounds.height <= 0f) return null
     val corners =
         mapOf(
             Handle.TOP_LEFT to Offset(bounds.left + crop.left * bounds.width, bounds.top + crop.top * bounds.height),
@@ -334,7 +350,11 @@ private fun nearestHandle(
         }?.key
 }
 
-private fun Modifier.rotatedByDegrees(degrees: Int): Modifier = if (degrees == 0) this else rotate(degrees.toFloat())
+/** Padding around the image. Also keeps the corner handles off the very screen
+ * edge, where the system back gesture would otherwise claim them. */
+private val EDITOR_PADDING = 24.dp
+
+private val CROP_BORDER_WIDTH = 2.dp
 
 /** Visible handle radius. Drawn in px, converted from dp at draw time. */
 private val HANDLE_RADIUS = 10.dp

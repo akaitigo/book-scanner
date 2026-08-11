@@ -75,10 +75,10 @@ import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import coil3.compose.AsyncImage
 import dev.bookscanner.app.ui.components.EmptyState
 import dev.bookscanner.app.ui.components.ErrorState
 import dev.bookscanner.app.ui.components.LoadingState
+import dev.bookscanner.app.ui.components.PageImage
 import dev.bookscanner.core.contracts.PageId
 import java.io.OutputStream
 
@@ -438,9 +438,9 @@ private fun PageCell(
                         this.selected = selected
                     },
         ) {
-            AsyncImage(
-                model = item.file,
-                contentDescription = null,
+            PageImage(
+                file = item.file,
+                rotationDegrees = item.page.geometry.rotationDegrees,
                 modifier = Modifier.fillMaxSize(),
             )
             Text(

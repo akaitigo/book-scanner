@@ -222,6 +222,28 @@ peak remains open.
 | Dialog stays above the IME with both actions reachable (SPACE-002) | Yes — verified with the Japanese keyboard open |
 | Back affordance on the capture screen (NAV-001) | Yes |
 
+## Defects found on device, and fixed (2026-08-11)
+
+Driving the real screen found **five** defects that 152 JVM tests did not,
+because every one of them lived in the Compose layer — the ViewModels' geometry
+was correct throughout.
+
+| # | Defect | Why no test caught it |
+|---|---|---|
+| 1 | The crop overlay measured the **composable's** bounds and treated them as the image. `ContentScale.Fit` letterboxes, so the crop covered the empty margins and the handles sat where the picture was not. | The geometry existed only inside a `@Composable`. It is now the pure `fittedImageRect`, with 9 tests. |
+| 2 | **Double rotation.** Coil applies EXIF orientation by default; our storage invariant keeps EXIF in the file and puts the rotation in the page's geometry, so previews rotated twice. An upright page displayed sideways and the crop rect had the wrong extent. | The export path uses `BitmapFactory`, which ignores EXIF, so tests of *export* were correct. Only the display path disagreed. Fixed globally with `ExifOrientationStrategy.IGNORE`. |
+| 3 | Corner handles fell inside the **system back-gesture strip**: dragging one closed the screen instead of cropping. | No emulator, and gesture navigation is not modelled in unit tests. Fixed with `systemGestureExclusion()` plus an inset. |
+| 4 | The canvas was padded, so each handle sat on its edge and the outer half of its 48 dp touch region was **outside the canvas** and received no touch. The handle simply could not be grabbed. | Hit-testing against a real finger is not something a JVM test does. The canvas now fills the area and the *image* is inset instead. |
+| 5 | `pointerInput` was keyed on the crop, so the first drag event changed the crop, restarted the gesture block and **cancelled the drag**. A full-screen drag moved the corner by one pixel. | Requires an actual multi-event drag. Fixed with `rememberUpdatedState`. |
+
+Verified after the fixes, on the device: the overlay renders, a quarter-turned
+page displays portrait, a corner drag of 275 x 360 px produced
+`crop = {left 0.276, top 0.272, right 1.0, bottom 1.0}` — matching the gesture —
+and it persisted to the manifest.
+
+The lesson recorded rather than glossed: the ViewModel tests were thorough and
+all passed, and the layer they did not cover is exactly where every defect was.
+
 ## Still not measured on device
 
 These were **not** exercised in the 2026-08-11 session and remain open; the
@@ -231,7 +253,8 @@ procedure for each is in [device-test-plan.md](device-test-plan.md):
 - precise per-page export latency, and peak memory *during* export
 - cancelling an export mid-flight, and whether the partial document is really
   removed by a live SAF provider
-- crop-handle grabbing with a finger, drag reorder, the discard-on-back dialog
+- drag reorder, and the discard-on-back dialog (crop-handle grabbing is now
+  verified — see the defect table above)
 - predictive back animation, 200% text scale, TalkBack order, gesture insets
 - a cropped 12 MP page through the re-encode path (`maxReencodedDimension`
   defaults to unlimited)
