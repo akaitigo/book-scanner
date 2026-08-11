@@ -4,6 +4,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dev.bookscanner.app.ui.sessions.readableMessage
 import dev.bookscanner.core.contracts.CropRect
+import dev.bookscanner.core.contracts.NormalizedPoint
+import dev.bookscanner.core.contracts.PageBoundary
 import dev.bookscanner.core.contracts.PageDetection
 import dev.bookscanner.core.contracts.PageGeometry
 import dev.bookscanner.core.contracts.PageId
@@ -116,6 +118,38 @@ class PageEditorViewModel(
         }
     }
 
+    /**
+     * Drags one corner of the detected boundary.
+     *
+     * A detection the user cannot see or adjust is one they have to trust
+     * blindly; this is what makes it a proposal rather than a verdict.
+     * Corner order matches [PageBoundary.corners]: top-left, top-right,
+     * bottom-right, bottom-left.
+     */
+    fun moveBoundaryCorner(
+        cornerIndex: Int,
+        dx: Float,
+        dy: Float,
+    ) {
+        _state.update { current ->
+            val boundary = current.geometry.boundary ?: return@update current
+            val corners = boundary.corners.toMutableList()
+            if (cornerIndex !in corners.indices) return@update current
+
+            val moved = corners[cornerIndex]
+            corners[cornerIndex] =
+                NormalizedPoint(
+                    x = (moved.x + dx).coerceIn(0f, 1f),
+                    y = (moved.y + dy).coerceIn(0f, 1f),
+                )
+            val updated = PageBoundary(corners[0], corners[1], corners[2], corners[3])
+            // A quadrilateral that has collapsed or folded into a bow-tie
+            // would warp to an unusable page; keep the last good one instead.
+            if (!updated.isConvex || updated.areaFraction < MIN_BOUNDARY_AREA) return@update current
+            current.copy(geometry = current.geometry.copy(boundary = updated))
+        }
+    }
+
     fun clearBoundary() {
         _state.update { it.copy(geometry = it.geometry.copy(boundary = null)) }
     }
@@ -183,5 +217,10 @@ class PageEditorViewModel(
 
     fun consumeError() {
         _state.update { it.copy(errorMessage = null) }
+    }
+
+    private companion object {
+        /** Smaller than this and the corrected page would be unusable. */
+        const val MIN_BOUNDARY_AREA = 0.02f
     }
 }

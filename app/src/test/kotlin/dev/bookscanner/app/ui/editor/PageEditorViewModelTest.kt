@@ -108,6 +108,65 @@ class PageEditorViewModelTest {
         }
 
     @Test
+    fun `a boundary corner can be dragged`() =
+        runTest {
+            val (_, viewModel) = detectingViewModel(PageDetection(detectedBoundary, confidence = 0.9f))
+            advanceUntilIdle()
+            viewModel.autoDetect()
+            advanceUntilIdle()
+
+            viewModel.moveBoundaryCorner(cornerIndex = 0, dx = 0.05f, dy = 0.03f)
+
+            val moved = assertNotNull(viewModel.state.value.geometry.boundary)
+            assertEquals(detectedBoundary.topLeft.x + 0.05f, moved.topLeft.x, 1e-4f)
+            assertEquals(detectedBoundary.topLeft.y + 0.03f, moved.topLeft.y, 1e-4f)
+            // Only the dragged corner moves.
+            assertEquals(detectedBoundary.topRight, moved.topRight)
+            assertEquals(detectedBoundary.bottomLeft, moved.bottomLeft)
+        }
+
+    @Test
+    fun `dragging a corner clamps it inside the image`() =
+        runTest {
+            val (_, viewModel) = detectingViewModel(PageDetection(detectedBoundary, confidence = 0.9f))
+            advanceUntilIdle()
+            viewModel.autoDetect()
+            advanceUntilIdle()
+
+            viewModel.moveBoundaryCorner(cornerIndex = 0, dx = -5f, dy = -5f)
+
+            val moved = assertNotNull(viewModel.state.value.geometry.boundary)
+            assertEquals(0f, moved.topLeft.x)
+            assertEquals(0f, moved.topLeft.y)
+        }
+
+    @Test
+    fun `a drag that would collapse the quadrilateral is refused`() =
+        runTest {
+            val (_, viewModel) = detectingViewModel(PageDetection(detectedBoundary, confidence = 0.9f))
+            advanceUntilIdle()
+            viewModel.autoDetect()
+            advanceUntilIdle()
+            val before = viewModel.state.value.geometry.boundary
+
+            // Drag the top-left corner onto the bottom-right one.
+            viewModel.moveBoundaryCorner(cornerIndex = 0, dx = 0.9f, dy = 0.9f)
+
+            assertEquals(before, viewModel.state.value.geometry.boundary, "a collapsed page must not be savable")
+        }
+
+    @Test
+    fun `moving a corner with no boundary does nothing`() =
+        runTest {
+            val (_, viewModel) = viewModel()
+            advanceUntilIdle()
+
+            viewModel.moveBoundaryCorner(cornerIndex = 0, dx = 0.1f, dy = 0.1f)
+
+            assertNull(viewModel.state.value.geometry.boundary)
+        }
+
+    @Test
     fun `the boundary can be undone`() =
         runTest {
             val (_, viewModel) = detectingViewModel(PageDetection(detectedBoundary, confidence = 0.9f))

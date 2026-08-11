@@ -45,6 +45,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.testTag
@@ -55,6 +56,7 @@ import dev.bookscanner.app.ui.components.ErrorState
 import dev.bookscanner.app.ui.components.LoadingState
 import dev.bookscanner.app.ui.components.drawPageImage
 import dev.bookscanner.core.contracts.CropRect
+import dev.bookscanner.core.contracts.PageBoundary
 import kotlin.math.abs
 
 object PageEditorTags {
@@ -191,6 +193,7 @@ fun PageEditorScreen(
                     CropEditor(
                         state = state,
                         onCropChanged = viewModel::updateCrop,
+                        onCornerMoved = viewModel::moveBoundaryCorner,
                     )
                 }
             }
@@ -232,6 +235,7 @@ fun PageEditorScreen(
 private fun CropEditor(
     state: PageEditorViewModel.UiState,
     onCropChanged: (left: Float, top: Float, right: Float, bottom: Float) -> Unit,
+    onCornerMoved: (cornerIndex: Int, dx: Float, dy: Float) -> Unit,
 ) {
     val painter = rememberAsyncImagePainter(model = state.imageFile)
     var activeHandle by remember { mutableStateOf<Handle?>(null) }
@@ -240,8 +244,9 @@ private fun CropEditor(
     val rotation = state.geometry.rotationDegrees
     val crop = state.editableCrop
 
-    // Read inside the gesture without restarting it when the crop changes.
+    // Read inside the gesture without restarting it when either changes.
     val currentCrop by rememberUpdatedState(crop)
+    val currentBoundary by rememberUpdatedState(state.geometry.boundary)
 
     Canvas(
         modifier =
@@ -268,8 +273,7 @@ private fun CropEditor(
                             activeHandle =
                                 nearestHandle(
                                     position = position,
-                                    crop = currentCrop,
-                                    bounds = displayRect,
+                                    corners = handleCorners(currentBoundary, currentCrop, displayRect),
                                     touchRadiusPx = HANDLE_TOUCH_RADIUS.toPx(),
                                 )
                         },
@@ -296,6 +300,28 @@ private fun CropEditor(
         if (display.width <= 0f || display.height <= 0f) return@Canvas
         displayRect = display
 
+        val boundary = state.geometry.boundary
+        val handlePoints =
+            if (boundary != null) {
+                // A detected page is a quadrilateral, not a rectangle. Drawing
+                // the crop rect here instead would tell the user "page edges
+                // detected" while showing them something else entirely.
+                boundary.corners.map {
+                    Offset(
+                        display.left + it.x * display.width,
+                        display.top + it.y * display.height,
+                    )
+                }
+            } else {
+                val cropRect =
+                    Rect(
+                        left = display.left + crop.left * display.width,
+                        top = display.top + crop.top * display.height,
+                        right = display.left + crop.right * display.width,
+                        bottom = display.top + crop.bottom * display.height,
+                    )
+                listOf(cropRect.topLeft, cropRect.topRight, cropRect.bottomRight, cropRect.bottomLeft)
+            }
         val cropRect =
             Rect(
                 left = display.left + crop.left * display.width,
@@ -304,30 +330,42 @@ private fun CropEditor(
                 bottom = display.top + crop.bottom * display.height,
             )
 
-        // Four rectangles around the kept area rather than a punched hole:
-        // BlendMode.Clear needs an offscreen compositing layer to punch through,
-        // and without one it silently did nothing here.
         val dim = Color.Black.copy(alpha = 0.55f)
-        drawRect(dim, topLeft = Offset.Zero, size = Size(size.width, cropRect.top))
-        drawRect(
-            dim,
-            topLeft = Offset(0f, cropRect.bottom),
-            size = Size(size.width, (size.height - cropRect.bottom).coerceAtLeast(0f)),
-        )
-        drawRect(dim, topLeft = Offset(0f, cropRect.top), size = Size(cropRect.left, cropRect.height))
-        drawRect(
-            dim,
-            topLeft = Offset(cropRect.right, cropRect.top),
-            size = Size((size.width - cropRect.right).coerceAtLeast(0f), cropRect.height),
-        )
+        if (boundary == null) {
+            // Four rectangles around the kept area rather than a punched hole:
+            // BlendMode.Clear needs an offscreen compositing layer, and without
+            // one it silently did nothing here.
+            drawRect(dim, topLeft = Offset.Zero, size = Size(size.width, cropRect.top))
+            drawRect(
+                dim,
+                topLeft = Offset(0f, cropRect.bottom),
+                size = Size(size.width, (size.height - cropRect.bottom).coerceAtLeast(0f)),
+            )
+            drawRect(dim, topLeft = Offset(0f, cropRect.top), size = Size(cropRect.left, cropRect.height))
+            drawRect(
+                dim,
+                topLeft = Offset(cropRect.right, cropRect.top),
+                size = Size((size.width - cropRect.right).coerceAtLeast(0f), cropRect.height),
+            )
+            drawRect(
+                color = Color.White,
+                topLeft = cropRect.topLeft,
+                size = cropRect.size,
+                style = Stroke(width = CROP_BORDER_WIDTH.toPx()),
+            )
+        } else {
+            // A quadrilateral cannot be dimmed with four rectangles, so the
+            // outline carries the meaning here.
+            val path =
+                Path().apply {
+                    moveTo(handlePoints[0].x, handlePoints[0].y)
+                    handlePoints.drop(1).forEach { lineTo(it.x, it.y) }
+                    close()
+                }
+            drawPath(path, color = Color.White, style = Stroke(width = CROP_BORDER_WIDTH.toPx() * 1.5f))
+        }
 
-        drawRect(
-            color = Color.White,
-            topLeft = cropRect.topLeft,
-            size = cropRect.size,
-            style = Stroke(width = CROP_BORDER_WIDTH.toPx()),
-        )
-        listOf(cropRect.topLeft, cropRect.topRight, cropRect.bottomLeft, cropRect.bottomRight).forEach { corner ->
+        handlePoints.forEach { corner ->
             drawCircle(color = Color.Black.copy(alpha = 0.5f), radius = HANDLE_RADIUS.toPx() * 1.3f, center = corner)
             drawCircle(color = Color.White, radius = HANDLE_RADIUS.toPx(), center = corner)
         }
@@ -336,10 +374,11 @@ private fun CropEditor(
 
 /** Which corner a drag is manipulating. */
 private enum class Handle {
+    // Order matches PageBoundary.corners so ordinal indexes both.
     TOP_LEFT,
     TOP_RIGHT,
-    BOTTOM_LEFT,
     BOTTOM_RIGHT,
+    BOTTOM_LEFT,
     ;
 
     fun apply(
@@ -364,25 +403,39 @@ private enum class Handle {
  */
 private fun nearestHandle(
     position: Offset,
-    crop: CropRect,
-    bounds: Rect,
+    corners: List<Offset>,
     touchRadiusPx: Float,
 ): Handle? {
-    if (bounds.width <= 0f || bounds.height <= 0f) return null
-    val corners =
-        mapOf(
-            Handle.TOP_LEFT to Offset(bounds.left + crop.left * bounds.width, bounds.top + crop.top * bounds.height),
-            Handle.TOP_RIGHT to Offset(bounds.left + crop.right * bounds.width, bounds.top + crop.top * bounds.height),
-            Handle.BOTTOM_LEFT to
-                Offset(bounds.left + crop.left * bounds.width, bounds.top + crop.bottom * bounds.height),
-            Handle.BOTTOM_RIGHT to
-                Offset(bounds.left + crop.right * bounds.width, bounds.top + crop.bottom * bounds.height),
-        )
-    return corners
-        .minByOrNull { (_, corner) -> abs(corner.x - position.x) + abs(corner.y - position.y) }
-        ?.takeIf { (_, corner) ->
+    if (corners.size != Handle.entries.size) return null
+    return Handle.entries
+        .minByOrNull { handle ->
+            val corner = corners[handle.ordinal]
+            abs(corner.x - position.x) + abs(corner.y - position.y)
+        }?.takeIf { handle ->
+            val corner = corners[handle.ordinal]
             abs(corner.x - position.x) <= touchRadiusPx && abs(corner.y - position.y) <= touchRadiusPx
-        }?.key
+        }
+}
+
+/**
+ * Handle positions in canvas pixels, in [Handle] order. The boundary's corners
+ * when there is one, otherwise the crop rectangle's.
+ */
+private fun handleCorners(
+    boundary: PageBoundary?,
+    crop: CropRect,
+    bounds: Rect,
+): List<Offset> {
+    if (bounds.width <= 0f || bounds.height <= 0f) return emptyList()
+    if (boundary != null) {
+        return boundary.corners.map { Offset(bounds.left + it.x * bounds.width, bounds.top + it.y * bounds.height) }
+    }
+    return listOf(
+        Offset(bounds.left + crop.left * bounds.width, bounds.top + crop.top * bounds.height),
+        Offset(bounds.left + crop.right * bounds.width, bounds.top + crop.top * bounds.height),
+        Offset(bounds.left + crop.right * bounds.width, bounds.top + crop.bottom * bounds.height),
+        Offset(bounds.left + crop.left * bounds.width, bounds.top + crop.bottom * bounds.height),
+    )
 }
 
 /** Padding around the image. Also keeps the corner handles off the very screen

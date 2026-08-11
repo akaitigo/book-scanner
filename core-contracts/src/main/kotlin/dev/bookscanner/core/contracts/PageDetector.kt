@@ -39,6 +39,36 @@ data class PageBoundary(
             return kotlin.math.abs(sum) / 2f
         }
 
+    /**
+     * True when the corners form a proper convex quadrilateral with a
+     * consistent winding.
+     *
+     * Area alone cannot express this: dragging one corner across the shape
+     * produces a self-intersecting bow-tie whose shoelace area partly cancels
+     * but stays comfortably above any sensible minimum. A bow-tie warps to a
+     * folded, unusable page, so the invariant is convexity, not size.
+     */
+    val isConvex: Boolean
+        get() {
+            val points = corners
+            var sign = 0
+            for (index in points.indices) {
+                val a = points[index]
+                val b = points[(index + 1) % points.size]
+                val c = points[(index + 2) % points.size]
+                val cross = (b.x - a.x) * (c.y - b.y) - (b.y - a.y) * (c.x - b.x)
+                if (kotlin.math.abs(cross) < 1e-6f) continue
+                val currentSign = if (cross > 0) 1 else -1
+                if (sign == 0) {
+                    sign = currentSign
+                } else if (sign != currentSign) {
+                    return false
+                }
+            }
+            // sign stays 0 only when every corner is collinear — a flat page.
+            return sign != 0
+        }
+
     companion object {
         /** The whole image — what "no crop needed" means. */
         val FULL =

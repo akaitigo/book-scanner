@@ -305,6 +305,23 @@ Tests: `vision` → `ContourPageDetectorTest`, `ImageOpsTest`,
 `PipelineDiagnosticTest` (the last prints per-stage counts, because "detection
 failed" is not a diagnosis in a six-stage pipeline).
 
+### On device
+
+Verified 2026-08-11 on the Pixel 7: detection runs on a real 12 MP capture,
+the boundary is drawn with draggable corner handles, and it persists to the
+manifest. The photographs available were of a dark room with no page in them,
+so the detector returned a quadrilateral fitted to whatever edges existed —
+correct behaviour on input with no page, and now *visibly* so, which is the
+point of drawing it.
+
+A gap that only appeared on the device: the editor announced "Page edges
+detected" while still drawing the rectangular crop overlay, so the user was
+told about a detection they could neither see nor correct. The overlay now
+draws the quadrilateral itself and each corner is draggable, with a convexity
+check refusing a drag that would fold the page into a bow-tie — a failure the
+area check could not catch, because a bow-tie's shoelace area partly cancels
+and stays above any sensible minimum.
+
 ## Not measured for detection
 
 - **Real photographs.** Every number above is synthetic. Glossy paper, curved
