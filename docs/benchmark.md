@@ -169,11 +169,14 @@ quickly`.
 | Item | Status |
 |---|---|
 | `./gradlew build ktlintCheck` from a **clean clone** | Passing — 152 tests, 2026-08-11. Run against a fresh `git clone` to prove nothing depends on untracked local files. |
-| `.github/workflows/ci.yml` | **Never executed.** The repository has no remote yet, so CI has produced zero runs. `actionlint` reports it clean and the commands it runs are the ones verified above, but that is not the same as a green run — do not describe CI as passing until it has. |
+| `.github/workflows/ci.yml` | Green. First run 2026-08-11 (`31456148852`), 152 tests; runs ktlint + assemble + tests on every push and publishes a debug APK. |
+| APK-level privacy check | Passing — `aapt2 dump badging` on the built APK shows `CAMERA` and nothing else. Stronger than the merged-manifest test, since it inspects the shipped artifact. |
 
 ## Not yet measured
 
-Stated explicitly so absence is not mistaken for a result:
+Stated explicitly so absence is not mistaken for a result. Every item below has
+a procedure in [device-test-plan.md](device-test-plan.md); none has been run,
+because no device has been available to this session:
 
 - per-page export latency, p50/p95, and peak memory on a real device — the
   120-page smoke test proves correctness at scale, not timing;

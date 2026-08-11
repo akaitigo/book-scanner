@@ -1,5 +1,7 @@
 # Book Scanner
 
+[![CI](https://github.com/akaitigo/book-scanner/actions/workflows/ci.yml/badge.svg)](https://github.com/akaitigo/book-scanner/actions/workflows/ci.yml)
+
 An open-source Android app for scanning your own paper books into readable —
 and later searchable — PDFs. Everything runs on the device; the app has no
 network permission at all.
@@ -55,9 +57,10 @@ org.gradle.java.installations.paths=/path/to/jdk-17
 There is no emulator job: the acceptance gates are all measurable as JVM tests,
 which is deliberate — see [CONTRIBUTING.md](CONTRIBUTING.md#tests).
 
-The CI workflow has not run yet — the repository has no remote. `./gradlew
-build ktlintCheck` passes from a clean clone (152 tests), and `actionlint`
-reports the workflow clean, but neither is a green CI run.
+CI runs ktlint, assemble and all 152 tests on every push, and publishes an
+installable debug APK as a build artifact. What it cannot check — camera
+capture, predictive back, text scaling, real memory — is listed in
+[docs/device-test-plan.md](docs/device-test-plan.md).
 
 ## Modules
 
@@ -83,6 +86,7 @@ Rationale: [ADR-0006](docs/adr/0006-module-structure.md).
 | [docs/pdf.md](docs/pdf.md) | The PDF writer's format scope and limits |
 | [docs/privacy.md](docs/privacy.md) | How the offline claim is enforced, not just stated |
 | [docs/ux-review.md](docs/ux-review.md) | The UX rule review of the M1 screens, violations and fixes |
+| [docs/device-test-plan.md](docs/device-test-plan.md) | What only a real device can verify, and how |
 | [docs/adr/](docs/adr/) | Decisions, alternatives, evidence, and revisit triggers |
 | [docs/implementation-plan.md](docs/implementation-plan.md) | Milestone 1 broken into issues |
 
