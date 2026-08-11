@@ -4,6 +4,7 @@ import dev.bookscanner.app.FakeScanRepository
 import dev.bookscanner.app.MainDispatcherRule
 import dev.bookscanner.app.TestFailure
 import dev.bookscanner.core.contracts.EngineId
+import dev.bookscanner.core.contracts.GrayscaleImage
 import dev.bookscanner.core.contracts.NormalizedPage
 import dev.bookscanner.core.contracts.PageGeometry
 import dev.bookscanner.core.contracts.PageImageNormalizer
@@ -208,20 +209,23 @@ class CaptureViewModelTest {
 
     // ---- automatic capture ----
 
+    /**
+     * A frame with page-like fine detail. A flat frame is rejected by the
+     * sharpness floor in `AutoCaptureController`, which is the point of it —
+     * auto-capture once photographed a blurred floor.
+     */
     private fun frame(
         level: Int,
-        jitter: Int = 1,
-        seed: Long = 1,
-    ): dev.bookscanner.core.contracts.GrayscaleImage {
-        var state = seed or 1L
+        scene: Long = 1,
+    ): GrayscaleImage {
+        var state = scene or 1L
         val pixels =
             ByteArray(40 * 30) {
                 state = state * 6364136223846793005L + 1442695040888963407L
-                val noise = if (jitter == 0) 0 else ((state ushr 33).toInt() % (jitter * 2 + 1)) - jitter
-                (level + noise).coerceIn(0, 255).toByte()
+                val swing = ((state ushr 33).toInt() % 41) - 20
+                (level + swing).coerceIn(0, 255).toByte()
             }
-        return dev.bookscanner.core.contracts
-            .GrayscaleImage(40, 30, pixels)
+        return GrayscaleImage(40, 30, pixels)
     }
 
     @Test

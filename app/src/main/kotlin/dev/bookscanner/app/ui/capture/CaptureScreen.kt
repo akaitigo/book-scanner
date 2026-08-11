@@ -429,8 +429,14 @@ private fun AutoCaptureOverlay(
 private fun autoStatusLabel(status: AutoCaptureController.Status): String =
     when (status) {
         AutoCaptureController.Status.SEARCHING -> "Hold the page still"
+
         AutoCaptureController.Status.HOLDING -> "Keep still…"
+
         AutoCaptureController.Status.WAITING_FOR_NEW_PAGE -> "Turn the page"
+
+        // Says what to do, not what is wrong: "no detail" is diagnostics, and
+        // the user's next action is to aim at a page.
+        AutoCaptureController.Status.NO_DETAIL -> "Point at a page"
     }
 
 private fun pageCountLabel(count: Int): String =

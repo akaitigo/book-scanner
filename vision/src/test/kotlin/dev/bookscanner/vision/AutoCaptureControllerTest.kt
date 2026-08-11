@@ -16,6 +16,32 @@ class AutoCaptureControllerTest {
     private val width = 40
     private val height = 30
 
+    /**
+     * A frame carrying fine detail, standing in for text on a page.
+     *
+     * [scene] selects the pattern — the same value gives the same picture, so a
+     * "still" sequence really is still — while [noise] adds the small
+     * frame-to-frame variation a real sensor produces.
+     */
+    private fun textured(
+        level: Int = 180,
+        scene: Long = 1,
+        noise: Int = 0,
+        frameSeed: Long = 0,
+    ): GrayscaleImage {
+        var pattern = scene or 1L
+        var jitter = (frameSeed * 2 + 1)
+        val pixels =
+            ByteArray(width * height) {
+                pattern = pattern * 6364136223846793005L + 1442695040888963407L
+                val swing = ((pattern ushr 33).toInt() % 41) - 20
+                jitter = jitter * 2862933555777941757L + 3037000493L
+                val wobble = if (noise == 0) 0 else ((jitter ushr 33).toInt() % (noise * 2 + 1)) - noise
+                (level + swing + wobble).coerceIn(0, 255).toByte()
+            }
+        return GrayscaleImage(width, height, pixels)
+    }
+
     /** A frame with uniform luminance, plus optional per-pixel jitter. */
     private fun frame(
         level: Int,
@@ -44,7 +70,7 @@ class AutoCaptureControllerTest {
         var decision =
             AutoCaptureController.Decision(AutoCaptureController.Status.SEARCHING, shouldCapture = false)
         repeat(steps) {
-            decision = controller.onFrame(frame(level, jitter = 1, seed = 1), now)
+            decision = controller.onFrame(textured(level, scene = 1), now)
             if (decision.shouldCapture) return decision to now
             now += stepMillis
         }
@@ -69,7 +95,7 @@ class AutoCaptureControllerTest {
 
         repeat(30) { step ->
             // Alternating brightness: the scene never settles.
-            val decision = controller.onFrame(frame(if (step % 2 == 0) 60 else 200), now)
+            val decision = controller.onFrame(textured(if (step % 2 == 0) 60 else 200, scene = step.toLong() + 1), now)
             assertTrue(!decision.shouldCapture, "must not fire while the frame is changing")
             now += 100
         }
@@ -84,7 +110,7 @@ class AutoCaptureControllerTest {
         // Keep holding the very same page well past the cooldown.
         var now = firedAt + 2_000
         repeat(30) {
-            val decision = controller.onFrame(frame(200, jitter = 1, seed = 1), now)
+            val decision = controller.onFrame(textured(200, scene = 1), now)
             assertTrue(!decision.shouldCapture, "the same page must not be captured again")
             assertEquals(AutoCaptureController.Status.WAITING_FOR_NEW_PAGE, decision.status)
             now += 100
@@ -99,7 +125,7 @@ class AutoCaptureControllerTest {
         // The page turns: motion, then a visibly different scene held still.
         var now = firedAt + 1_500
         repeat(3) {
-            controller.onFrame(frame(if (it % 2 == 0) 60 else 150), now)
+            controller.onFrame(textured(if (it % 2 == 0) 60 else 150, scene = it.toLong() + 9), now)
             now += 100
         }
         val (second, _) = holdStill(controller, startMillis = now, level = 120)
@@ -116,7 +142,7 @@ class AutoCaptureControllerTest {
         // its output as if it were a new page would double-capture.
         var now = firedAt + 100
         repeat(5) {
-            val decision = controller.onFrame(frame(90, jitter = 1, seed = 5), now)
+            val decision = controller.onFrame(textured(90, scene = 5), now)
             assertTrue(!decision.shouldCapture, "must stay quiet during the cooldown")
             now += 100
         }
@@ -131,7 +157,7 @@ class AutoCaptureControllerTest {
         var detectedAt = -1L
         repeat(20) {
             val decision =
-                withBoundary.onFrame(frame(200, jitter = 1, seed = 1), now, boundary = SyntheticPages.defaultCorners)
+                withBoundary.onFrame(textured(200, scene = 1), now, boundary = SyntheticPages.defaultCorners)
             if (decision.shouldCapture && detectedAt < 0) detectedAt = now
             now += 100
         }
@@ -148,10 +174,10 @@ class AutoCaptureControllerTest {
     @Test
     fun `hold progress climbs toward the trigger`() {
         val controller = AutoCaptureController()
-        controller.onFrame(frame(200, jitter = 1, seed = 1), 0)
+        controller.onFrame(textured(200, scene = 1), 0)
 
-        val early = controller.onFrame(frame(200, jitter = 1, seed = 1), 200)
-        val late = controller.onFrame(frame(200, jitter = 1, seed = 1), 600)
+        val early = controller.onFrame(textured(200, scene = 1), 200)
+        val late = controller.onFrame(textured(200, scene = 1), 600)
 
         assertEquals(AutoCaptureController.Status.HOLDING, early.status)
         assertTrue(
@@ -169,12 +195,57 @@ class AutoCaptureControllerTest {
         var now = 0L
         var fired = false
         repeat(20) { step ->
-            val decision = controller.onFrame(frame(180, jitter = 2, seed = step.toLong() + 1), now)
+            val decision = controller.onFrame(textured(180, scene = 1, noise = 2, frameSeed = step.toLong() + 1), now)
             if (decision.shouldCapture) fired = true
             now += 100
         }
 
         assertTrue(fired, "noise must not be mistaken for the user moving the phone")
+    }
+
+    @Test
+    fun `a featureless frame never fires, however still it is`() {
+        val controller = AutoCaptureController()
+
+        // The first frame only establishes a baseline; judge from the second.
+        controller.onFrame(frame(120, jitter = 0), 0)
+
+        var now = 100L
+        repeat(30) {
+            // Perfectly flat: a blurred floor, a wall, a lens cap.
+            val decision = controller.onFrame(frame(120, jitter = 0), now)
+            assertTrue(!decision.shouldCapture, "there is nothing here worth photographing")
+            assertEquals(AutoCaptureController.Status.NO_DETAIL, decision.status)
+            now += 100
+        }
+    }
+
+    @Test
+    fun `a frame with page-like detail still fires`() {
+        val controller = AutoCaptureController()
+
+        var now = 0L
+        var fired = false
+        repeat(20) {
+            if (controller.onFrame(textured(scene = 1), now).shouldCapture) fired = true
+            now += 100
+        }
+
+        assertTrue(fired, "the detail gate must not block an actual page")
+    }
+
+    @Test
+    fun `losing detail mid-hold cancels the capture`() {
+        val controller = AutoCaptureController()
+        controller.onFrame(textured(scene = 1), 0)
+        val holding = controller.onFrame(textured(scene = 1), 200)
+        assertEquals(AutoCaptureController.Status.HOLDING, holding.status)
+
+        // The phone is lowered: the view goes blurred and featureless.
+        val lowered = controller.onFrame(frame(120, jitter = 0), 400)
+
+        assertEquals(AutoCaptureController.Status.NO_DETAIL, lowered.status)
+        assertTrue(!lowered.shouldCapture)
     }
 
     @Test
@@ -191,7 +262,7 @@ class AutoCaptureControllerTest {
     @Test
     fun `a changed frame size is handled rather than crashing`() {
         val controller = AutoCaptureController()
-        controller.onFrame(frame(200), 0)
+        controller.onFrame(textured(200), 0)
 
         val decision = controller.onFrame(GrayscaleImage(10, 10, ByteArray(100) { 200.toByte() }), 100)
 

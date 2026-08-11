@@ -47,6 +47,22 @@ class AutoCaptureController(
          * it, because detection failing must not block capture.
          */
         val detectedStillMillis: Long = 450,
+        /**
+         * Mean absolute difference between neighbouring pixels, below which the
+         * frame is judged too featureless to be worth capturing.
+         *
+         * A **sharpness floor, not a page test**: detection is too unreliable to
+         * gate the shutter on, but "is there readable detail in view" is
+         * answerable from the pixels alone. It exists because auto-capture
+         * photographed a blurred floor and a cable while the phone was being
+         * lowered — still, briefly, and pointed at nothing.
+         *
+         * Measured at preview resolution on real captures: the blurred floor
+         * scored 1.10, ten real page photographs ranged 1.75 to 3.43. The
+         * threshold sits nearer the failure than the worst success, so a missed
+         * capture (press the button) is likelier than a junk one.
+         */
+        val minimumDetail: Float = 1.3f,
     )
 
     /** What the UI should tell the user right now. */
@@ -59,6 +75,9 @@ class AutoCaptureController(
 
         /** Waiting for the scene to change before considering another capture. */
         WAITING_FOR_NEW_PAGE,
+
+        /** Steady, but nothing worth photographing is in view. */
+        NO_DETAIL,
     }
 
     data class Decision(
@@ -96,6 +115,13 @@ class AutoCaptureController(
         if (previous == null || previous.size != frame.pixels.size) {
             stillSinceMillis = null
             return Decision(Status.SEARCHING, shouldCapture = false, boundary = boundary)
+        }
+
+        // Checked before stillness, so that lowering the phone — which is both
+        // blurred and briefly steady — cannot reach the trigger.
+        if (meanNeighbourDifference(frame) < settings.minimumDetail) {
+            stillSinceMillis = null
+            return Decision(Status.NO_DETAIL, shouldCapture = false, boundary = boundary)
         }
 
         val motion = meanAbsoluteDifference(previous, frame.pixels)
@@ -166,6 +192,29 @@ class AutoCaptureController(
         while (index < a.size) {
             total += abs((a[index].toInt() and 0xFF) - (b[index].toInt() and 0xFF))
             count++
+            index += SAMPLE_STRIDE
+        }
+        return if (count == 0) 0f else total.toFloat() / count
+    }
+
+    /**
+     * Mean absolute difference between horizontally neighbouring pixels.
+     *
+     * A page carries text, and text is high-frequency detail; a blurred or
+     * empty scene has almost none. Sampling every [SAMPLE_STRIDE]th pixel keeps
+     * this affordable on the camera thread, and the last pixel of each row is
+     * skipped so the wrap to the next row is not counted as an edge.
+     */
+    private fun meanNeighbourDifference(frame: GrayscaleImage): Float {
+        val pixels = frame.pixels
+        var total = 0L
+        var count = 0
+        var index = 0
+        while (index < pixels.size - 1) {
+            if ((index + 1) % frame.width != 0) {
+                total += abs((pixels[index].toInt() and 0xFF) - (pixels[index + 1].toInt() and 0xFF))
+                count++
+            }
             index += SAMPLE_STRIDE
         }
         return if (count == 0) 0f else total.toFloat() / count

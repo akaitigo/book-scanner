@@ -395,11 +395,28 @@ button press at all — 5.2 MB and 5.3 MB, ingested through the normal path with
 their EXIF orientation folded into geometry exactly as manual captures are.
 The "turn the page" state then prevented it re-shooting the same scene.
 
-`AutoCaptureController` is pure JVM with 10 tests, because "turn the page,
+`AutoCaptureController` is pure JVM with 13 tests, because "turn the page,
 settle, hold" is a *sequence* and a camera makes a sequence hard to reproduce
 twice. Detection is fed in as an advisory signal — it draws the outline and
 shortens the required hold from 700 ms to 450 ms, but its absence never blocks
 a capture.
+
+**A sharpness floor was added after the first real use.** Left to stillness
+alone, auto-capture photographed a blurred floor and a cable while the phone
+was being lowered: briefly steady, pointed at nothing. Measured at preview
+resolution, mean absolute difference between neighbouring pixels separates the
+two cleanly —
+
+| Frame | Detail |
+|---|---:|
+| The blurred floor | **1.10** |
+| Ten real page photographs | 1.75 – 3.43 |
+
+— because a page carries text and text is high-frequency detail. The threshold
+is 1.3, nearer the failure than the worst success, so a missed capture (press
+the button) is likelier than a junk one. It is a **quality floor, not a page
+test**: "is there something readable in view" is answerable from the pixels,
+while "is this a page" is not, at the accuracy measured above.
 
 ## What would move this forward
 
