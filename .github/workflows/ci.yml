@@ -31,6 +31,18 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v6
 
+      # Robolectric fetches its Android runtime jars at *test* time, outside
+      # Gradle's dependency resolution, so a transient network failure fails
+      # every Robolectric class at once with a bare `classMethod` error rather
+      # than anything diagnosable. That happened on 2026-08-11 and reddened a
+      # commit whose code was fine. Caching them makes repeat runs immune.
+      - name: Cache Robolectric runtimes
+        uses: actions/cache@v4
+        with:
+          path: ~/.m2/repository/org/robolectric
+          key: robolectric-${{ runner.os }}-${{ hashFiles('gradle/libs.versions.toml') }}
+          restore-keys: robolectric-${{ runner.os }}-
+
       - name: Check formatting
         run: ./gradlew ktlintCheck --no-daemon
 

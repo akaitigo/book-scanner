@@ -86,6 +86,25 @@ Benchmarks need real book pages, and real book pages are usually copyrighted.
   resolution, dataset, implementation version. A number without them is not a
   result.
 
+## Checking CI
+
+```bash
+scripts/wait-for-ci.sh          # waits for HEAD's run, exits non-zero if it fails
+```
+
+Use it rather than `gh run watch` on whatever run happens to be newest.
+Immediately after a push the new run may not exist yet, so `gh run list
+--limit 1` returns the *previous* one — which is how a red commit got reported
+as green here on 2026-08-11. The script matches on the commit SHA.
+
+Two failure modes worth recognising:
+
+- **Every Robolectric class fails at once with a bare `classMethod` error.**
+  That is Robolectric failing to fetch its Android runtime jars, not your code.
+  CI caches them; a first-run fetch can still fail transiently.
+- **Formatting fails but the code compiles.** Run `./gradlew ktlintFormat`; the
+  pinned CLI is the authority, not your editor.
+
 ## Pull requests
 
 - One reviewable change per PR. Splitting for reviewability is good; splitting
