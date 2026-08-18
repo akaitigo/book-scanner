@@ -51,8 +51,7 @@ API 37. No Android Studio needed.
 git clone <this repo> && cd book-scanner
 echo "sdk.dir=$ANDROID_HOME" > local.properties
 
-./gradlew build          # compile + all tests
-./gradlew ktlintCheck    # formatting
+./scripts/verify         # formatting + debug APK + all unit tests
 ./gradlew :app:installDebug
 ```
 
@@ -66,7 +65,7 @@ org.gradle.java.installations.paths=/path/to/jdk-17
 There is no emulator job: the acceptance gates are all measurable as JVM tests,
 which is deliberate — see [CONTRIBUTING.md](CONTRIBUTING.md#tests).
 
-CI runs ktlint, assemble and all 152 tests on every push, and publishes an
+CI runs ktlint, assemble and the full unit-test suite on every push, and publishes an
 installable debug APK as a build artifact. What it cannot check — camera
 capture, predictive back, text scaling, real memory — is listed in
 [docs/device-test-plan.md](docs/device-test-plan.md).
@@ -95,6 +94,9 @@ Rationale: [ADR-0006](docs/adr/0006-module-structure.md).
 | [docs/benchmark.md](docs/benchmark.md) | Method, **measured results**, and what is *not* measured |
 | [docs/pdf.md](docs/pdf.md) | The PDF writer's format scope and limits |
 | [docs/privacy.md](docs/privacy.md) | How the offline claim is enforced, not just stated |
+| [docs/security-boundary.md](docs/security-boundary.md) | Trust boundaries and changes requiring explicit review |
+| [docs/operations.md](docs/operations.md) | Verification, APK handling, rollback, and incident procedures |
+| [SECURITY.md](SECURITY.md) | Private vulnerability reporting policy |
 | [docs/ux-review.md](docs/ux-review.md) | The UX rule review of the M1 screens, violations and fixes |
 | [docs/device-test-plan.md](docs/device-test-plan.md) | What only a real device can verify, and how |
 | [docs/adr/](docs/adr/) | Decisions, alternatives, evidence, and revisit triggers |

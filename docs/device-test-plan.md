@@ -1,9 +1,9 @@
 # Device test plan — Milestone 1
 
-CI verifies 152 things. This is the list it *cannot*, and why each one needs
-real hardware. Everything here is currently listed as unmeasured in
-[benchmark.md](benchmark.md) and [ux-review.md](ux-review.md); running this
-plan is what converts those entries into results.
+CI verifies the deterministic JVM/Robolectric suite. This is the repeatable
+list of checks it cannot perform and why each needs real hardware. Prior results
+are recorded in [benchmark.md](benchmark.md); run the relevant rows again for a
+new APK rather than carrying an old device result forward.
 
 Build under test: `app-debug.apk`, versionName 0.1.0, debug-signed.
 
@@ -17,7 +17,8 @@ Or copy the APK to the phone and open it (allow install from this source once).
 
 ## 1. Capture — the one thing no test can fake
 
-CameraX cannot run without a camera. Everything below is unverified today.
+CameraX cannot run without a camera. Some rows passed for earlier APKs, but each
+new capture-flow change needs the affected rows repeated.
 
 | # | Check | Expected | Why it matters |
 |---|---|---|---|
@@ -27,6 +28,16 @@ CameraX cannot run without a camera. Everything below is unverified today.
 | 1.4 | Read the captured page at 100% zoom | Small text is legible | Capture quality drives OCR feasibility in M3. If it is not legible here, `CAPTURE_MODE_MAXIMIZE_QUALITY` is not enough |
 | 1.5 | Hold the phone in portrait, then landscape, capture in each | Both appear upright in the page list | EXIF orientation is folded into geometry rather than pixels — this is where that gets proven |
 | 1.6 | Deny camera access (revoke in Settings, reopen) | The screen explains the situation and offers Import; it is not a dead end | Permission-denied is a designed state |
+
+### Automatic capture
+
+| # | Check | Expected | Why it matters |
+|---|---|---|---|
+| 1.7 | Enable automatic capture and hold one page still | It waits long enough to settle, then captures once with a visible flash and vibration | An invisible capture caused users to photograph the same page again |
+| 1.8 | Keep the same page in view after the first capture | It is not stored twice; a message says the duplicate was skipped | Automatic guesses must not fill the session with repeats |
+| 1.9 | Leave capture, reopen it, and hold the last page again | The existing last page is still recognised and skipped | Duplicate protection must survive screen recreation |
+| 1.10 | Import a page, then hold that imported page in view | The imported page is the new duplicate reference | Document order, not in-memory capture history, defines "previous" |
+| 1.11 | Delete the last page, then hold its predecessor in view | The predecessor is recognised as the current last page | Deletion must invalidate the removed page's fingerprint |
 
 ## 2. Import
 
@@ -88,4 +99,5 @@ Add what you measure to [benchmark.md](benchmark.md) with the conditions the
 comparative rule requires — device, Android version, build type, page
 resolution, dataset. Move anything verified out of the "Not measured" section.
 
-Anything that fails here is a real bug: these paths have never run on hardware.
+Anything that fails here is a real bug or a device-specific incompatibility to
+investigate; do not replace the result with a mocked or Robolectric pass.

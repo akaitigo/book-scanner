@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# Canonical local/CI verification gate. Keep every mandatory check here so a
+# contributor cannot pass a weaker command than the one protecting main.
+set -euo pipefail
+
+./gradlew ktlintCheck --no-daemon
+./gradlew assembleDebug --no-daemon
+./gradlew test testDebugUnitTest --no-daemon

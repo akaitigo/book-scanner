@@ -10,7 +10,9 @@ import dev.bookscanner.core.contracts.PageGeometry
 import dev.bookscanner.core.contracts.PageImageNormalizer
 import dev.bookscanner.core.session.PageIngestor
 import dev.bookscanner.vision.PageSignature
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.test.advanceUntilIdle
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.junit.Rule
 import org.junit.Test
@@ -337,7 +339,7 @@ class CaptureViewModelTest {
             // The reported problem: an automatic capture gives no sign it
             // happened, so the same page gets photographed twice.
             val normalizer = RecordingNormalizer()
-            val viewModel = viewModel(normalizer).apply { signatureOf = ::signatureOfName }
+            val viewModel = viewModel(normalizer).apply { signatureOf = { signatureOfName(it) } }
             advanceUntilIdle()
 
             viewModel.onAutoFrameCaptured("page-200".toByteArray())
@@ -354,12 +356,160 @@ class CaptureViewModelTest {
         }
 
     @Test
+    fun `reopening capture still skips the last stored page`() =
+        runTest {
+            val session = repository.seed(title = "Book")
+            val normalizer = RecordingNormalizer()
+            val first =
+                CaptureViewModel(session.id, repository, PageIngestor(repository, normalizer)).apply {
+                    signatureOf = { signatureOfName(it) }
+                }
+            advanceUntilIdle()
+            first.onAutoFrameCaptured("page-200".toByteArray())
+            advanceUntilIdle()
+
+            val reopened =
+                CaptureViewModel(
+                    session.id,
+                    repository,
+                    PageIngestor(repository, normalizer),
+                    signatureOf = { signatureOfName(it) },
+                    signatureOfFile = { signatureOfName("page-200".toByteArray()) },
+                )
+            advanceUntilIdle()
+            reopened.onAutoFrameCaptured("page-200".toByteArray())
+            advanceUntilIdle()
+
+            assertContentEquals(listOf("page-200"), normalizer.received)
+            assertTrue(reopened.state.value.duplicateSkipped)
+            assertEquals(1, reopened.state.value.pageCount)
+        }
+
+    @Test
+    fun `deleting the last page makes its predecessor the duplicate reference`() =
+        runTest {
+            val session = repository.seed(title = "Book")
+            val normalizer = RecordingNormalizer()
+            val viewModel =
+                CaptureViewModel(
+                    session.id,
+                    repository,
+                    PageIngestor(repository, normalizer),
+                    signatureOf = { signatureOfName(it) },
+                )
+            advanceUntilIdle()
+            viewModel.onAutoFrameCaptured("page-200".toByteArray())
+            advanceUntilIdle()
+            viewModel.onAutoFrameCaptured("page-201".toByteArray())
+            advanceUntilIdle()
+
+            val pages = repository.current(session.id).pages
+            val page200 = pages.first()
+            val page201 = pages.last()
+            viewModel.signatureOfFile = { file ->
+                if (file.name == page200.fileName) signatureOfName("page-200".toByteArray()) else null
+            }
+            viewModel.deletePage(page201)
+            advanceUntilIdle()
+            viewModel.onAutoFrameCaptured("page-200".toByteArray())
+            advanceUntilIdle()
+
+            assertContentEquals(listOf("page-200", "page-201"), normalizer.received)
+            assertTrue(viewModel.state.value.duplicateSkipped)
+            assertEquals(1, viewModel.state.value.pageCount)
+        }
+
+    @Test
+    fun `an imported page becomes the duplicate reference`() =
+        runTest {
+            val normalizer = RecordingNormalizer()
+            val viewModel = viewModel(normalizer).apply { signatureOf = { signatureOfName(it) } }
+            advanceUntilIdle()
+            viewModel.onAutoFrameCaptured("page-200".toByteArray())
+            advanceUntilIdle()
+
+            viewModel.signatureOfFile = { signatureOfName("page-201".toByteArray()) }
+            viewModel.onImagesPicked(listOf({ "page-201".byteInputStream() }))
+            advanceUntilIdle()
+            viewModel.onAutoFrameCaptured("page-201".toByteArray())
+            advanceUntilIdle()
+
+            assertContentEquals(listOf("page-200", "page-201"), normalizer.received)
+            assertTrue(viewModel.state.value.duplicateSkipped)
+            assertEquals(2, viewModel.state.value.pageCount)
+        }
+
+    @Test
+    fun `a late restore cannot replace the signature of a newer capture`() =
+        runTest {
+            val session = repository.seed(title = "Book", pageCount = 1)
+            val restoreMayFinish = CompletableDeferred<Unit>()
+            val normalizer = RecordingNormalizer()
+            val viewModel =
+                CaptureViewModel(
+                    session.id,
+                    repository,
+                    PageIngestor(repository, normalizer),
+                    signatureOf = { signatureOfName(it) },
+                    signatureOfFile = {
+                        restoreMayFinish.await()
+                        signatureOfName("old-page".toByteArray())
+                    },
+                )
+            runCurrent()
+
+            viewModel.onAutoFrameCaptured("new-page".toByteArray())
+            runCurrent()
+            restoreMayFinish.complete(Unit)
+            advanceUntilIdle()
+            viewModel.onAutoFrameCaptured("new-page".toByteArray())
+            advanceUntilIdle()
+
+            assertContentEquals(listOf("new-page"), normalizer.received)
+            assertTrue(viewModel.state.value.duplicateSkipped)
+        }
+
+    @Test
+    fun `automatic capture waits for the stored signature to be restored`() =
+        runTest {
+            val session = repository.seed(title = "Book", pageCount = 1)
+            val restoreMayFinish = CompletableDeferred<Unit>()
+            val viewModel =
+                CaptureViewModel(
+                    session.id,
+                    repository,
+                    PageIngestor(repository, RecordingNormalizer()),
+                    signatureOfFile = {
+                        restoreMayFinish.await()
+                        signatureOfName("stored-page".toByteArray())
+                    },
+                )
+            runCurrent()
+            viewModel.setAutoCapture(true)
+
+            var now = 0L
+            repeat(30) {
+                assertTrue(!viewModel.onPreviewFrame(frame(200), now), "must wait for the durable reference")
+                now += 100
+            }
+
+            restoreMayFinish.complete(Unit)
+            advanceUntilIdle()
+            var asked = false
+            repeat(20) {
+                if (viewModel.onPreviewFrame(frame(200), now)) asked = true
+                now += 100
+            }
+            assertTrue(asked, "a completed restore must release automatic capture")
+        }
+
+    @Test
     fun `pressing the shutter twice on one page stores both`() =
         runTest {
             // Deliberate: the shutter is an instruction. Only a capture the app
             // decided to make on its own may be second-guessed.
             val normalizer = RecordingNormalizer()
-            val viewModel = viewModel(normalizer).apply { signatureOf = ::signatureOfName }
+            val viewModel = viewModel(normalizer).apply { signatureOf = { signatureOfName(it) } }
             advanceUntilIdle()
 
             viewModel.onFrameCaptured("page-200".toByteArray())
@@ -376,7 +526,7 @@ class CaptureViewModelTest {
     fun `turning the page is not mistaken for a repeat`() =
         runTest {
             val normalizer = RecordingNormalizer()
-            val viewModel = viewModel(normalizer).apply { signatureOf = ::signatureOfName }
+            val viewModel = viewModel(normalizer).apply { signatureOf = { signatureOfName(it) } }
             advanceUntilIdle()
 
             viewModel.onAutoFrameCaptured("page-200".toByteArray())
@@ -395,7 +545,7 @@ class CaptureViewModelTest {
             // page again after moving on is a re-shoot the user meant, and a
             // book legitimately repeats near-identical pages far apart.
             val normalizer = RecordingNormalizer()
-            val viewModel = viewModel(normalizer).apply { signatureOf = ::signatureOfName }
+            val viewModel = viewModel(normalizer).apply { signatureOf = { signatureOfName(it) } }
             advanceUntilIdle()
 
             listOf("page-200", "page-201", "page-200").forEach {
@@ -426,7 +576,8 @@ class CaptureViewModelTest {
     @Test
     fun `a skip notice is cleared once shown`() =
         runTest {
-            val viewModel = viewModel(RecordingNormalizer()).apply { signatureOf = ::signatureOfName }
+            val viewModel =
+                viewModel(RecordingNormalizer()).apply { signatureOf = { signatureOfName(it) } }
             advanceUntilIdle()
 
             viewModel.onAutoFrameCaptured("page-200".toByteArray())

@@ -446,7 +446,9 @@ own captures:
 The threshold is **0.30** — between the populations and nearer the duplicates,
 because keeping a duplicate costs a delete while dropping a wanted page costs a
 page the user believes they have. Only the *previous* page is compared, and
-only for captures the app made on its own: pressing the shutter is an
+only for captures the app made on its own. The reference follows the durable
+last page across capture-screen recreation, imports, and deletion, rather than
+resetting with the screen: pressing the shutter is an
 instruction, and a book legitimately repeats near-identical pages far apart.
 
 **3. A capture that happens by itself is invisible.** This is what caused (2) —
@@ -510,5 +512,5 @@ because no device has been available to this session:
   a cropped 12 MP capture is decoded at full resolution during export. Only the
   cropped pages take this path — passthrough pages are never decoded — but the
   smoke test uses 480×640 images and does not exercise it. Needs a device;
-- anything involving page detection, OCR, or a From-Scratch/Production
-  comparison — those engines do not exist yet.
+- image enhancement, OCR, and side-by-side From-Scratch/Production comparison;
+  page detection exists and its measured results are recorded above.

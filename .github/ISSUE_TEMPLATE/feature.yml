@@ -1,0 +1,46 @@
+name: 機能提案
+description: 1件1目的で、利用者の問題と検証可能な完了条件を記載します
+title: "[機能] "
+labels: ["種別: 機能"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: 問題
+      description: 誰が何に困っているかを、機能名ではなく結果として記載してください。
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: 根拠・再現方法
+      description: 実機条件、入力、ログ、測定値を記載してください。著作物のページ画像は添付しないでください。
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: 期待する結果と受け入れ条件
+      description: 外部から観測・テストできる箇条書きにしてください。
+    validations:
+      required: true
+  - type: textarea
+    id: non_goals
+    attributes:
+      label: 非目標
+      description: 今回変更しない範囲を記載してください。
+  - type: dropdown
+    id: boundary
+    attributes:
+      label: 影響する境界
+      multiple: true
+      options:
+        - Android権限
+        - 外部通信・プライバシー
+        - 保存形式・削除・復元
+        - PDF互換性
+        - 依存関係・ライセンス
+        - 実機のみで検証可能
+        - いずれも該当しない
+    validations:
+      required: true
