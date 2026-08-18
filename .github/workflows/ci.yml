@@ -43,17 +43,11 @@ jobs:
           key: robolectric-${{ runner.os }}-${{ hashFiles('gradle/libs.versions.toml') }}
           restore-keys: robolectric-${{ runner.os }}-
 
-      - name: Check formatting
-        run: ./gradlew ktlintCheck --no-daemon
-
-      - name: Assemble
-        run: ./gradlew assembleDebug --no-daemon
-
       # Every acceptance gate this project relies on — PDF validity, output
       # size, geometry — runs here. The runners have no /dev/kvm, so there is
       # no emulator job; see docs/adr/0007-pdf-export-jpeg-passthrough.md.
-      - name: Unit tests
-        run: ./gradlew test testDebugUnitTest --no-daemon
+      - name: Verify
+        run: ./scripts/verify
 
       - name: Upload test reports
         if: always()

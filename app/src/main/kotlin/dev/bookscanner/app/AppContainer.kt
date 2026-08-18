@@ -1,6 +1,7 @@
 package dev.bookscanner.app
 
 import android.content.Context
+import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import dev.bookscanner.core.contracts.PageDetector
 import dev.bookscanner.core.contracts.PageImageNormalizer
@@ -16,6 +17,8 @@ import dev.bookscanner.engine.production.JpegPdfExporter
 import dev.bookscanner.engine.production.toGrayscale
 import dev.bookscanner.vision.ContourPageDetector
 import dev.bookscanner.vision.PageSignature
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import java.io.File
 
 /**
@@ -53,10 +56,21 @@ class AppContainer(
      * recognised. Decoding small is deliberate: the signature is 64x48, so
      * anything beyond a few hundred pixels is wasted work on the capture path.
      */
-    fun pageSignatureOf(bytes: ByteArray): PageSignature? =
+    suspend fun pageSignatureOf(bytes: ByteArray): PageSignature? =
+        withContext(Dispatchers.Default) {
+            decodeSignature { options -> BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options) }
+        }
+
+    /** Decodes a stored page small, without first materializing its full byte array. */
+    suspend fun pageSignatureOfFile(file: File): PageSignature? =
+        withContext(Dispatchers.IO) {
+            decodeSignature { options -> BitmapFactory.decodeFile(file.absolutePath, options) }
+        }
+
+    private fun decodeSignature(decode: (BitmapFactory.Options) -> Bitmap?): PageSignature? =
         runCatching {
             val options = BitmapFactory.Options().apply { inSampleSize = SIGNATURE_SAMPLE_SIZE }
-            val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options) ?: return null
+            val bitmap = decode(options) ?: return null
             try {
                 PageSignature.of(bitmap.toGrayscale())
             } finally {

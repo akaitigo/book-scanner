@@ -1,0 +1,30 @@
+name: 不具合報告
+description: 再現条件、期待結果、実際の結果を記録します
+title: "[バグ] "
+labels: ["種別: バグ"]
+body:
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: 再現手順
+      description: 端末、Android版、アプリ版、入力条件と最小手順を記載してください。
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: 期待した結果
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: 実際の結果・証跡
+      description: ログや測定値を添えてください。秘密情報や書籍ページは公開しないでください。
+    validations:
+      required: true
+  - type: textarea
+    id: safety
+    attributes:
+      label: データ・プライバシーへの影響
+      description: ページ消失、部分PDF、権限、外部送信の可能性を記載してください。

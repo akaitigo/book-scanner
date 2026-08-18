@@ -23,8 +23,7 @@ applies to human and AI contributors alike.
 ## Tests
 
 ```bash
-./gradlew build          # compile + every test
-./gradlew ktlintCheck    # formatting (must be clean)
+./scripts/verify         # formatting + debug APK + every unit test
 ./gradlew ktlintFormat   # apply formatting
 ```
 

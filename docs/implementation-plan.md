@@ -75,7 +75,7 @@ dataset policy) ship with M1-11.
 
 ### M1-05 — Page transformer: non-destructive crop/rotate (`engine-production`)
 - **Objective**: apply `PageGeometry` to pixels for preview/export.
-- **Files**: `BitmapPageTransformer` (region decode + matrix), sampling for
+- **Files**: `BitmapPageTransformer` (sampled decode + matrix), sampling for
   preview vs full-res for export.
 - **AC**: originals never modified; EXIF orientation honored; downsampled
   decode for previews (no full-res bitmap for thumbnails).

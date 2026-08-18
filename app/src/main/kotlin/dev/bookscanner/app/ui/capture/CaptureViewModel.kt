@@ -6,6 +6,7 @@ import dev.bookscanner.app.ui.sessions.readableMessage
 import dev.bookscanner.core.contracts.GrayscaleImage
 import dev.bookscanner.core.contracts.PageBoundary
 import dev.bookscanner.core.contracts.PageDetector
+import dev.bookscanner.core.contracts.PageId
 import dev.bookscanner.core.contracts.ScanRepository
 import dev.bookscanner.core.contracts.ScannedPage
 import dev.bookscanner.core.contracts.SessionId
@@ -32,6 +33,10 @@ class CaptureViewModel(
     /** Optional: without it, auto-capture still works on stillness alone. */
     private val detector: PageDetector? = null,
     private val autoCapture: AutoCaptureController = AutoCaptureController(),
+    /** Injected so the ViewModel stays testable without an Android decoder. */
+    var signatureOf: suspend (ByteArray) -> PageSignature? = { null },
+    /** Restores the fingerprint when this screen is recreated. */
+    var signatureOfFile: suspend (File) -> PageSignature? = { null },
 ) : ViewModel() {
     data class UiState(
         val pageCount: Int = 0,
@@ -69,12 +74,8 @@ class CaptureViewModel(
     private var framesSeen = 0L
     private var latestBoundary: PageBoundary? = null
     private var lastPageSignature: PageSignature? = null
-
-    /**
-     * Fingerprints captured bytes. Injected so the ViewModel stays testable
-     * without a JPEG decoder; the app supplies the Android one.
-     */
-    var signatureOf: (ByteArray) -> PageSignature? = { null }
+    private var signedPageId: PageId? = null
+    private var signatureRevision = 0L
 
     init {
         refresh()
@@ -82,9 +83,14 @@ class CaptureViewModel(
 
     fun refresh() {
         viewModelScope.launch {
-            runCatching { repository.getSession(sessionId) }
-                .onSuccess { session -> session?.let { publish(it.pages) } }
-                .onFailure { error -> _state.update { it.copy(errorMessage = error.readableMessage()) } }
+            try {
+                repository.getSession(sessionId)?.let { session ->
+                    publish(session.pages)
+                    synchronizeLastPageSignature(session.pages)
+                }
+            } catch (error: Throwable) {
+                _state.update { it.copy(errorMessage = error.readableMessage()) }
+            }
         }
     }
 
@@ -124,8 +130,10 @@ class CaptureViewModel(
             }
 
             runCatching { ingestor.ingest(sessionId, bytes) }
-                .onSuccess {
+                .onSuccess { page ->
                     if (signature != null) lastPageSignature = signature
+                    signatureRevision++
+                    signedPageId = page.id
                     _state.update { it.copy(captureCount = it.captureCount + 1) }
                 }.onFailure { error -> _state.update { it.copy(errorMessage = error.readableMessage()) } }
             _state.update { it.copy(capturing = false) }
@@ -170,9 +178,13 @@ class CaptureViewModel(
 
     fun deletePage(page: ScannedPage) {
         viewModelScope.launch {
-            runCatching { repository.removePages(sessionId, setOf(page.id)) }
-                .onSuccess { publish(it.pages) }
-                .onFailure { error -> _state.update { it.copy(errorMessage = error.readableMessage()) } }
+            try {
+                val session = repository.removePages(sessionId, setOf(page.id))
+                publish(session.pages)
+                synchronizeLastPageSignature(session.pages)
+            } catch (error: Throwable) {
+                _state.update { it.copy(errorMessage = error.readableMessage()) }
+            }
         }
     }
 
@@ -257,6 +269,29 @@ class CaptureViewModel(
                         .map { PageThumbnail(it, repository.pageFile(sessionId, it)) },
             )
         }
+    }
+
+    /**
+     * Keeps duplicate detection aligned with durable document order rather
+     * than with this ViewModel's lifetime. Reopening capture, importing a page,
+     * or deleting the last page must all change what "the previous page" is.
+     *
+     * Failure is deliberately fail-open: if a stored image cannot be decoded,
+     * the next automatic capture is retained instead of risking a lost page.
+     */
+    private suspend fun synchronizeLastPageSignature(pages: List<ScannedPage>) {
+        val lastPage = pages.lastOrNull()
+        if (lastPage?.id == signedPageId) return
+
+        val revision = ++signatureRevision
+        val restored =
+            lastPage?.let { page ->
+                runCatching { signatureOfFile(repository.pageFile(sessionId, page)) }.getOrNull()
+            }
+        if (revision != signatureRevision) return
+
+        lastPageSignature = restored
+        signedPageId = lastPage?.id
     }
 
     private fun importFailureMessage(
