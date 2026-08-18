@@ -470,6 +470,40 @@ class CaptureViewModelTest {
         }
 
     @Test
+    fun `automatic capture waits for the stored signature to be restored`() =
+        runTest {
+            val session = repository.seed(title = "Book", pageCount = 1)
+            val restoreMayFinish = CompletableDeferred<Unit>()
+            val viewModel =
+                CaptureViewModel(
+                    session.id,
+                    repository,
+                    PageIngestor(repository, RecordingNormalizer()),
+                    signatureOfFile = {
+                        restoreMayFinish.await()
+                        signatureOfName("stored-page".toByteArray())
+                    },
+                )
+            runCurrent()
+            viewModel.setAutoCapture(true)
+
+            var now = 0L
+            repeat(30) {
+                assertTrue(!viewModel.onPreviewFrame(frame(200), now), "must wait for the durable reference")
+                now += 100
+            }
+
+            restoreMayFinish.complete(Unit)
+            advanceUntilIdle()
+            var asked = false
+            repeat(20) {
+                if (viewModel.onPreviewFrame(frame(200), now)) asked = true
+                now += 100
+            }
+            assertTrue(asked, "a completed restore must release automatic capture")
+        }
+
+    @Test
     fun `pressing the shutter twice on one page stores both`() =
         runTest {
             // Deliberate: the shutter is an instruction. Only a capture the app

@@ -76,19 +76,23 @@ class CaptureViewModel(
     private var lastPageSignature: PageSignature? = null
     private var signedPageId: PageId? = null
     private var signatureRevision = 0L
+    private var signatureReady = false
 
     init {
         refresh()
     }
 
     fun refresh() {
+        val revision = ++signatureRevision
+        signatureReady = false
         viewModelScope.launch {
             try {
                 repository.getSession(sessionId)?.let { session ->
                     publish(session.pages)
-                    synchronizeLastPageSignature(session.pages)
+                    synchronizeLastPageSignature(session.pages, revision)
                 }
             } catch (error: Throwable) {
+                if (revision == signatureRevision) signatureReady = true
                 _state.update { it.copy(errorMessage = error.readableMessage()) }
             }
         }
@@ -134,6 +138,7 @@ class CaptureViewModel(
                     if (signature != null) lastPageSignature = signature
                     signatureRevision++
                     signedPageId = page.id
+                    signatureReady = true
                     _state.update { it.copy(captureCount = it.captureCount + 1) }
                 }.onFailure { error -> _state.update { it.copy(errorMessage = error.readableMessage()) } }
             _state.update { it.copy(capturing = false) }
@@ -166,23 +171,28 @@ class CaptureViewModel(
                 runCatching { open().use { stream -> ingestor.ingest(sessionId, stream) } }
                     .onFailure { failures++ }
             }
+            // Invalidate the old reference before exposing an idle UI. The
+            // following refresh restores it from the imported final page.
+            refresh()
             _state.update {
                 it.copy(
                     importing = false,
                     errorMessage = if (failures > 0) importFailureMessage(failures, sources.size) else it.errorMessage,
                 )
             }
-            refresh()
         }
     }
 
     fun deletePage(page: ScannedPage) {
+        val revision = ++signatureRevision
+        signatureReady = false
         viewModelScope.launch {
             try {
                 val session = repository.removePages(sessionId, setOf(page.id))
                 publish(session.pages)
-                synchronizeLastPageSignature(session.pages)
+                synchronizeLastPageSignature(session.pages, revision)
             } catch (error: Throwable) {
+                if (revision == signatureRevision) signatureReady = true
                 _state.update { it.copy(errorMessage = error.readableMessage()) }
             }
         }
@@ -219,7 +229,7 @@ class CaptureViewModel(
         frame: GrayscaleImage,
         nowMillis: Long,
     ): Boolean {
-        if (!_state.value.autoCapture || _state.value.busy) return false
+        if (!_state.value.autoCapture || _state.value.busy || !signatureReady) return false
 
         framesSeen++
         if (framesSeen % DETECT_EVERY_N_FRAMES == 0L) {
@@ -279,11 +289,17 @@ class CaptureViewModel(
      * Failure is deliberately fail-open: if a stored image cannot be decoded,
      * the next automatic capture is retained instead of risking a lost page.
      */
-    private suspend fun synchronizeLastPageSignature(pages: List<ScannedPage>) {
+    private suspend fun synchronizeLastPageSignature(
+        pages: List<ScannedPage>,
+        revision: Long,
+    ) {
+        if (revision != signatureRevision) return
         val lastPage = pages.lastOrNull()
-        if (lastPage?.id == signedPageId) return
+        if (lastPage?.id == signedPageId) {
+            signatureReady = true
+            return
+        }
 
-        val revision = ++signatureRevision
         val restored =
             lastPage?.let { page ->
                 runCatching { signatureOfFile(repository.pageFile(sessionId, page)) }.getOrNull()
@@ -292,6 +308,7 @@ class CaptureViewModel(
 
         lastPageSignature = restored
         signedPageId = lastPage?.id
+        signatureReady = true
     }
 
     private fun importFailureMessage(
